@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Authors>ToonSharp Contributors</Authors>
+    <Description>Conversion utilities between JSON and TOON (Token-Oriented Object Notation)</Description>
+    <Version>0.1.0</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/shinjidev/toonsharp-csharp</RepositoryUrl>
+  </PropertyGroup>
+
+</Project>
