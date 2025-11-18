@@ -2,7 +2,7 @@
 
 [![.NET Version](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjidev/toonsharp-csharp/actions)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
 
 A production-grade C# library and CLI that converts data between JSON and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
 
@@ -44,8 +44,8 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON conversion capabili
 
 ```bash
 # Clone the repository
-git clone https://github.com/shinjidev/toonsharp-csharp.git
-cd toonsharp-csharp
+git clone https://github.com/shinjiDev/toonsharp.git
+cd toonsharp
 
 # Build the solution
 dotnet build
@@ -172,38 +172,38 @@ dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 
 ## ⚡ Performance
 
-ToonSharp está optimizado para alto rendimiento. Los siguientes benchmarks fueron ejecutados en **.NET 9.0** con BenchmarkDotNet:
+ToonSharp is optimized for high performance. The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet:
 
-### Resultados de Rendimiento
+### Performance Results
 
-| Operación | Tamaño | Tiempo Medio | Desviación Estándar | Memoria Asignada |
-|-----------|--------|--------------|---------------------|------------------|
-| **Serialización** (JSON → TOON) | Pequeño (~100 B) | 9.26 μs | ±4.54 μs | 996 B |
-| | Mediano (~1 KB) | 27.51 μs | ±10.72 μs | 4,737 B |
-| | Grande (~10 KB) | 298.08 μs | ±70.34 μs | 53,164 B |
-| **Deserialización** (TOON → JSON) | Pequeño | 11.27 μs | ±4.32 μs | 5,488 B |
-| | Mediano | 43.92 μs | ±11.38 μs | 28,704 B |
-| | Grande | 448.82 μs | ±54.07 μs | 314,278 B |
-| **Round-Trip** (JSON → TOON → JSON) | Pequeño | 22.41 μs | ±7.12 μs | 6,476 B |
-| | Mediano | 66.35 μs | ±17.12 μs | 33,427 B |
-| | Grande | 714.72 μs | ±97.43 μs | 367,434 B |
+| Operation | Size | Mean Time | Std Deviation | Allocated Memory |
+|-----------|------|-----------|--------------|------------------|
+| **Serialization** (JSON → TOON) | Small (~100 B) | 7.91 μs | ±3.33 μs | 998 B |
+| | Medium (~1 KB) | 30.54 μs | ±9.04 μs | 4,924 B |
+| | Large (~10 KB) | 357.47 μs | ±44.24 μs | 53,702 B |
+| **Deserialization** (TOON → JSON) | Small | 10.04 μs | ±1.12 μs | 5,399 B |
+| | Medium | 31.16 μs | ±3.22 μs | 23,689 B |
+| | Large | 476.43 μs | ±51.16 μs | 284,256 B |
+| **Round-Trip** (JSON → TOON → JSON) | Small | 16.64 μs | ±3.71 μs | 6,381 B |
+| | Medium | 52.25 μs | ±10.76 μs | 28,612 B |
+| | Large | 632.71 μs | ±215.92 μs | 337,964 B |
 
-**Notas:**
-- Los benchmarks se ejecutan en modo Release con optimizaciones completas
-- Los tiempos incluyen overhead de GC y asignación de memoria
-- Los resultados pueden variar según el hardware y la carga del sistema
+**Notes:**
+- Benchmarks run in Release mode with full optimizations
+- Times include GC overhead and memory allocation
+- Results may vary based on hardware and system load
 
-### Ejecutar Benchmarks
+### Running Benchmarks
 
 ```bash
-# Ejecutar todos los benchmarks
+# Run all benchmarks
 dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release
 
-# Ejecutar benchmarks específicos
+# Run specific benchmarks
 dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release -- --filter "*Small*"
 ```
 
-Los resultados completos se exportan automáticamente a `BenchmarkDotNet.Artifacts/results/` en formato Markdown, HTML y CSV.
+Complete results are automatically exported to `BenchmarkDotNet.Artifacts/results/` in Markdown, HTML, and CSV formats.
 
 ## 📚 Documentation
 
@@ -223,18 +223,18 @@ Comprehensive documentation is available in the `docs/` directory:
 
 ## 📖 Examples
 
-El directorio `examples/spec_v2/` contiene todo el material del repositorio oficial [`toon-format/spec`](https://github.com/toon-format/spec/tree/main/examples):
+The `examples/spec_v2/` directory contains all material from the official [`toon-format/spec`](https://github.com/toon-format/spec/tree/main/examples) repository:
 
-- `conversions/` – pares JSON ↔ TOON publicados por la especificación.
-- `valid/` – todos los ejemplos canónicos (key folding, delimitadores personalizados, arreglos primitivos, etc.).
-- `invalid/` – casos límite que deben fallar en modo estricto.
-- `basic_object`, `tabular_array`, `mixed_structures` – ejemplos propios de ToonSharp pensados para documentación rápida.
+- `conversions/` – JSON ↔ TOON pairs published by the specification.
+- `valid/` – all canonical examples (key folding, custom delimiters, primitive arrays, etc.).
+- `invalid/` – edge cases that must fail in strict mode.
+- `basic_object`, `tabular_array`, `mixed_structures` – ToonSharp-specific examples designed for quick documentation.
 
-El conjunto de pruebas `ExamplesComplianceTests` recorre **cada** archivo TOON oficial y verifica que:
+The `ExamplesComplianceTests` test suite iterates through **every** official TOON file and verifies that:
 
-1. Los ejemplos válidos se puedan parsear, validar y hacer round-trip sin pérdida.
-2. Los pares JSON ↔ TOON sigan equivalentes tras serializar/deserializar con ToonSharp.
-3. Los ejemplos inválidos disparen `ToonSyntaxError` en modo estricto.
+1. Valid examples can be parsed, validated, and round-tripped without loss.
+2. JSON ↔ TOON pairs remain equivalent after serializing/deserializing with ToonSharp.
+3. Invalid examples throw `ToonSyntaxError` in strict mode.
 
 ```bash
 dotnet test --filter ExamplesComplianceTests
