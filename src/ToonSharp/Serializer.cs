@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace ToonSharp;
 
@@ -124,17 +125,37 @@ public class ToonSerializer
     {
         // Arrays are always written with "-" prefix, not as tabular
         // Tabular format is only used when array is a value in an object
-        foreach (var item in seq)
+        
+        // Use parallel processing for large arrays of simple values (threshold: 200 items)
+        // Optimized based on benchmark results showing good performance at 1000 items
+        const int parallelThreshold = 200;
+        if (seq.Count >= parallelThreshold && seq.All(IsInline))
         {
+            // Fast path: all items are inline, can process in parallel
             var prefix = new string(' ', level) + "-";
-            if (IsInline(item))
+            var itemLines = new string[seq.Count];
+            Parallel.For(0, seq.Count, i =>
             {
-                lines.Add($"{prefix} {FormatScalar(item)}");
-            }
-            else
+                var item = seq[i];
+                itemLines[i] = $"{prefix} {FormatScalar(item)}";
+            });
+            lines.AddRange(itemLines);
+        }
+        else
+        {
+            // Sequential processing for small arrays or arrays with complex items
+            foreach (var item in seq)
             {
-                lines.Add(prefix);
-                WriteValue(item, level + indent, lines);
+                var prefix = new string(' ', level) + "-";
+                if (IsInline(item))
+                {
+                    lines.Add($"{prefix} {FormatScalar(item)}");
+                }
+                else
+                {
+                    lines.Add(prefix);
+                    WriteValue(item, level + indent, lines);
+                }
             }
         }
     }
@@ -145,16 +166,40 @@ public class ToonSerializer
         var header = new string(' ', level) + $"{key}[{rows.Count}]{{{fields}}}:";
         lines.Add(header);
 
-        foreach (var row in rows)
+        // Use parallel processing for large tables (threshold: 50 rows)
+        // Optimized based on benchmark results showing good performance at 200 rows
+        const int parallelThreshold = 50;
+        if (rows.Count >= parallelThreshold)
         {
-            var cells = new List<string>();
-            foreach (var k in schema.Keys)
+            var rowLines = new string[rows.Count];
+            var indentStr = new string(' ', level + indent);
+            Parallel.For(0, rows.Count, i =>
             {
-                var value = row.GetValueOrDefault(k);
-                cells.Add(FormatScalar(value));
+                var row = rows[i];
+                var cells = new List<string>(schema.Keys.Count);
+                foreach (var k in schema.Keys)
+                {
+                    var value = row.GetValueOrDefault(k);
+                    cells.Add(FormatScalar(value));
+                }
+                rowLines[i] = indentStr + string.Join(",", cells);
+            });
+            lines.AddRange(rowLines);
+        }
+        else
+        {
+            // Sequential processing for small tables (less overhead)
+            foreach (var row in rows)
+            {
+                var cells = new List<string>();
+                foreach (var k in schema.Keys)
+                {
+                    var value = row.GetValueOrDefault(k);
+                    cells.Add(FormatScalar(value));
+                }
+                var rowLine = new string(' ', level + indent) + string.Join(",", cells);
+                lines.Add(rowLine);
             }
-            var rowLine = new string(' ', level + indent) + string.Join(",", cells);
-            lines.Add(rowLine);
         }
     }
 

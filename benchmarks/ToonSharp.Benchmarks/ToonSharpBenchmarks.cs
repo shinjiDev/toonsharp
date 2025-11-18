@@ -14,9 +14,13 @@ public class ToonSharpBenchmarks
     private Dictionary<string, object?> _smallObject = null!;
     private Dictionary<string, object?> _mediumObject = null!;
     private Dictionary<string, object?> _largeObject = null!;
+    private Dictionary<string, object?> _largeTableObject = null!; // 200+ rows for parallel processing
+    private Dictionary<string, object?> _largeArrayObject = null!; // 1000+ items for parallel processing
     private string _smallToon = null!;
     private string _mediumToon = null!;
     private string _largeToon = null!;
+    private string _largeTableToon = null!;
+    private string _largeArrayToon = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -83,10 +87,41 @@ public class ToonSharpBenchmarks
             }
         };
 
+        // Large table object: 200+ rows to trigger parallel table serialization
+        var tableRows = new List<Dictionary<string, object?>>();
+        for (int i = 1; i <= 200; i++)
+        {
+            tableRows.Add(new Dictionary<string, object?>
+            {
+                ["id"] = i,
+                ["name"] = $"User {i}",
+                ["email"] = $"user{i}@example.com",
+                ["active"] = i % 2 == 0,
+                ["score"] = i * 1.5
+            });
+        }
+        _largeTableObject = new Dictionary<string, object?>
+        {
+            ["users"] = tableRows
+        };
+
+        // Large array object: 1000+ items to trigger parallel array serialization
+        var arrayItems = new List<object?>();
+        for (int i = 1; i <= 1000; i++)
+        {
+            arrayItems.Add($"Item {i}");
+        }
+        _largeArrayObject = new Dictionary<string, object?>
+        {
+            ["items"] = arrayItems
+        };
+
         // Pre-generate TOON strings for parsing benchmarks
         _smallToon = Api.ToToon(_smallObject);
         _mediumToon = Api.ToToon(_mediumObject);
         _largeToon = Api.ToToon(_largeObject);
+        _largeTableToon = Api.ToToon(_largeTableObject);
+        _largeArrayToon = Api.ToToon(_largeArrayObject);
     }
 
     // Serialization benchmarks (JSON -> TOON)
@@ -137,6 +172,39 @@ public class ToonSharpBenchmarks
     public object? RoundTrip_Large()
     {
         var toon = Api.ToToon(_largeObject);
+        return Api.FromToon(toon);
+    }
+
+    // Parallel processing benchmarks
+    [Benchmark]
+    [BenchmarkCategory("Parallel", "TableSerialization")]
+    public string Serialize_LargeTable() => Api.ToToon(_largeTableObject);
+
+    [Benchmark]
+    [BenchmarkCategory("Parallel", "TableDeserialization")]
+    public object? Deserialize_LargeTable() => Api.FromToon(_largeTableToon);
+
+    [Benchmark]
+    [BenchmarkCategory("Parallel", "ArraySerialization")]
+    public string Serialize_LargeArray() => Api.ToToon(_largeArrayObject);
+
+    [Benchmark]
+    [BenchmarkCategory("Parallel", "ArrayDeserialization")]
+    public object? Deserialize_LargeArray() => Api.FromToon(_largeArrayToon);
+
+    [Benchmark]
+    [BenchmarkCategory("Parallel", "TableRoundTrip")]
+    public object? RoundTrip_LargeTable()
+    {
+        var toon = Api.ToToon(_largeTableObject);
+        return Api.FromToon(toon);
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("Parallel", "ArrayRoundTrip")]
+    public object? RoundTrip_LargeArray()
+    {
+        var toon = Api.ToToon(_largeArrayObject);
         return Api.FromToon(toon);
     }
 }

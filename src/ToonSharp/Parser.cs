@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 namespace ToonSharp;
 
@@ -51,15 +52,19 @@ public class ToonLexer
                 continue;
             }
 
-            var leading = stripped.Length - stripped.TrimStart(' ', '\t').Length;
-            var prefix = stripped.Substring(0, leading);
-            if (prefix.Contains('\t'))
+            var strippedSpan = stripped.AsSpan();
+            var leading = 0;
+            while (leading < strippedSpan.Length && (strippedSpan[leading] == ' ' || strippedSpan[leading] == '\t'))
             {
-                throw new ToonSyntaxError("Tabs are not allowed for indentation", idx + 1, 1);
+                if (strippedSpan[leading] == '\t')
+                {
+                    throw new ToonSyntaxError("Tabs are not allowed for indentation", idx + 1, 1);
+                }
+                leading++;
             }
-
-            var indent = prefix.Length;
-            var content = stripped.Substring(leading).TrimEnd();
+            
+            var indent = leading;
+            var content = strippedSpan.Slice(leading).TrimEnd().ToString();
             lines.Add(new Line(indent, content, idx + 1));
         }
 
@@ -405,10 +410,11 @@ public class ToonParser
 
     private (List<Dictionary<string, object?>> rows, int nextIndex) ParseTableFromHeader(int start, List<string> fields, int expectedLength, string delimiter, int indent)
     {
-        var rows = new List<Dictionary<string, object?>>();
-        int index = start + 1;
         var headerLine = lines[start];
-
+        int index = start + 1;
+        
+        // First, collect all table row lines
+        var tableLines = new List<(Line line, int originalIndex)>();
         while (index < lines.Count)
         {
             var line = lines[index];
@@ -416,36 +422,83 @@ public class ToonParser
             {
                 break;
             }
-
-            // Parse delimited values
-            var values = SplitEscapedRow(line.Content.Trim(), delimiter);
-            if (values.Count == 0)
-            {
-                // Fallback: simple split
-                values = line.Content
-                    .Trim()
-                    .Split(new[] { delimiter }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(v => v.Trim())
-                    .ToList();
-            }
-
-            if (values.Count != fields.Count)
-            {
-                throw new ToonSyntaxError(
-                    $"Expected {fields.Count} values in table row, got {values.Count}",
-                    line.LineNo,
-                    1);
-            }
-
-            var row = new Dictionary<string, object?>();
-            for (int i = 0; i < fields.Count; i++)
-            {
-                var currentLine = lines[index];
-                row[fields[i]] = ParseScalar(values[i]);
-            }
-
-            rows.Add(row);
+            tableLines.Add((line, index));
             index++;
+        }
+
+        var rows = new List<Dictionary<string, object?>>(tableLines.Count);
+        
+        // Use parallel processing for large tables (threshold: 50 rows)
+        // Optimized based on benchmark results showing good performance at 200 rows
+        const int parallelThreshold = 50;
+        if (tableLines.Count >= parallelThreshold)
+        {
+            var parsedRows = new Dictionary<string, object?>[tableLines.Count];
+            Parallel.For(0, tableLines.Count, i =>
+            {
+                var (line, _) = tableLines[i];
+                
+                // Parse delimited values
+                var values = SplitEscapedRow(line.Content.Trim(), delimiter);
+                if (values.Count == 0)
+                {
+                    // Fallback: simple split
+                    values = line.Content
+                        .Trim()
+                        .Split(new[] { delimiter }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(v => v.Trim())
+                        .ToList();
+                }
+
+                if (values.Count != fields.Count)
+                {
+                    throw new ToonSyntaxError(
+                        $"Expected {fields.Count} values in table row, got {values.Count}",
+                        line.LineNo,
+                        1);
+                }
+
+                var row = new Dictionary<string, object?>();
+                for (int j = 0; j < fields.Count; j++)
+                {
+                    row[fields[j]] = ParseScalar(values[j]);
+                }
+                parsedRows[i] = row;
+            });
+            rows.AddRange(parsedRows);
+        }
+        else
+        {
+            // Sequential processing for small tables (less overhead)
+            foreach (var (line, _) in tableLines)
+            {
+                // Parse delimited values
+                var values = SplitEscapedRow(line.Content.Trim(), delimiter);
+                if (values.Count == 0)
+                {
+                    // Fallback: simple split
+                    values = line.Content
+                        .Trim()
+                        .Split(new[] { delimiter }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(v => v.Trim())
+                        .ToList();
+                }
+
+                if (values.Count != fields.Count)
+                {
+                    throw new ToonSyntaxError(
+                        $"Expected {fields.Count} values in table row, got {values.Count}",
+                        line.LineNo,
+                        1);
+                }
+
+                var row = new Dictionary<string, object?>();
+                for (int i = 0; i < fields.Count; i++)
+                {
+                    row[fields[i]] = ParseScalar(values[i]);
+                }
+                rows.Add(row);
+            }
         }
 
         // Validate that we parsed the expected number of rows
@@ -492,7 +545,8 @@ public class ToonParser
                 continue;
             }
 
-            if (!inQuotes && line.Substring(i).StartsWith(separator))
+            if (!inQuotes && i + separator.Length <= line.Length && 
+                line.AsSpan(i, separator.Length).SequenceEqual(separator.AsSpan()))
             {
                 result.Add(current.ToString().Trim());
                 current.Clear();
@@ -519,8 +573,9 @@ public class ToonParser
             return null;
         }
 
-        var rawKey = line.Substring(0, colonIndex).TrimEnd();
-        var value = colonIndex < line.Length - 1 ? line.Substring(colonIndex + 1).TrimStart() : null;
+        var lineSpan = line.AsSpan();
+        var rawKey = lineSpan.Slice(0, colonIndex).TrimEnd().ToString();
+        var value = colonIndex < lineSpan.Length - 1 ? lineSpan.Slice(colonIndex + 1).TrimStart().ToString() : null;
         var wasQuoted = rawKey.Length >= 2 && rawKey.StartsWith('"') && rawKey.EndsWith('"');
         var cleanKey = UnquoteKey(rawKey);
         return (new KeyToken(rawKey, cleanKey, wasQuoted), value);
@@ -539,13 +594,14 @@ public class ToonParser
             return null;
         }
 
-        var countSegment = key.Substring(bracketIndex + 1, key.Length - bracketIndex - 2);
+        var keySpan = key.AsSpan();
+        var countSegment = keySpan.Slice(bracketIndex + 1, keySpan.Length - bracketIndex - 2);
         if (!int.TryParse(countSegment, out var count))
         {
             return null;
         }
 
-        var baseKey = key.Substring(0, bracketIndex).TrimEnd();
+        var baseKey = keySpan.Slice(0, bracketIndex).TrimEnd().ToString();
         if (string.IsNullOrWhiteSpace(baseKey))
         {
             return null;
@@ -584,15 +640,30 @@ public class ToonParser
             return;
         }
 
-        var segments = key.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length == 0)
+        // Use Span-based splitting for better performance
+        var segments = new List<string>();
+        var keySpan = key.AsSpan();
+        int start = 0;
+        for (int i = 0; i <= keySpan.Length; i++)
+        {
+            if (i == keySpan.Length || keySpan[i] == '.')
+            {
+                if (i > start)
+                {
+                    segments.Add(keySpan.Slice(start, i - start).ToString());
+                }
+                start = i + 1;
+            }
+        }
+        
+        if (segments.Count == 0)
         {
             target[key] = value;
             return;
         }
 
         var current = target;
-        for (int i = 0; i < segments.Length - 1; i++)
+        for (int i = 0; i < segments.Count - 1; i++)
         {
             var segment = segments[i];
             EnsureFoldableSegment(segment, lineNo);
