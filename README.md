@@ -190,17 +190,24 @@ The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet:
 | **Serialization** (JSON → TOON) | Small (~100 B) | 7.91 μs | ±3.33 μs | 998 B |
 | | Medium (~1 KB) | 30.54 μs | ±9.04 μs | 4,924 B |
 | | Large (~10 KB) | 357.47 μs | ±44.24 μs | 53,702 B |
+| | Large Table (200 rows) | 854.13 μs | ±69.35 μs | 340,141 B |
+| | Large Array (1000 items) | 673.38 μs | ±138.29 μs | 788,061 B |
 | **Deserialization** (TOON → JSON) | Small | 10.04 μs | ±1.12 μs | 5,399 B |
 | | Medium | 31.16 μs | ±3.22 μs | 23,689 B |
 | | Large | 476.43 μs | ±51.16 μs | 284,256 B |
+| | Large Table (200 rows) | 1,026.56 μs | ±221.65 μs | 1,169,815 B |
+| | Large Array (1000 items) | 659.95 μs | ±44.71 μs | 1,139,510 B |
 | **Round-Trip** (JSON → TOON → JSON) | Small | 16.64 μs | ±3.71 μs | 6,381 B |
 | | Medium | 52.25 μs | ±10.76 μs | 28,612 B |
 | | Large | 632.71 μs | ±215.92 μs | 337,964 B |
+| | Large Table (200 rows) | 1,486.09 μs | ±358.55 μs | 1,436,083 B |
+| | Large Array (1000 items) | 1,333.16 μs | ±123.21 μs | 1,861,480 B |
 
 **Notes:**
 - Benchmarks run in Release mode with full optimizations
 - Times include GC overhead and memory allocation
 - Results may vary based on hardware and system load
+- Large Table and Large Array benchmarks use parallel processing (50+ rows, 200+ items)
 
 ### Running Benchmarks
 
