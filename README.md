@@ -33,7 +33,14 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON conversion capabili
 * **Token savings estimation**
 * **Configurable modes**: auto, compact, readable
 
-### 🛠️ 4. CLI & Utilities
+### ⚡ 4. Performance Optimizations
+
+* **Parallel processing** for large tables (50+ rows) and arrays (200+ items)
+* **Span<T> optimizations** for zero-allocation string operations
+* **Memory-efficient** parsing and serialization
+* **Automatic threshold tuning** based on data size
+
+### 🛠️ 5. CLI & Utilities
 
 * **Command-line interface** (`toonsharp`) for file conversion
 * **Validation API** for syntax checking
@@ -172,7 +179,9 @@ dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 
 ## ⚡ Performance
 
-ToonSharp is optimized for high performance. The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet:
+ToonSharp is optimized for high performance using **parallel processing** and **Span<T>** optimizations. The library automatically uses parallel processing for large datasets (tables with 50+ rows, arrays with 200+ items) and leverages `Span<T>` for zero-allocation string operations, significantly reducing memory allocations and improving throughput.
+
+The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet:
 
 ### Performance Results
 
