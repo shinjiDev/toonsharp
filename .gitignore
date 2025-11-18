@@ -74,3 +74,9 @@ coverage*.info
 ## BenchmarkDotNet
 BenchmarkDotNet.Artifacts/
 
+## Temporary debug/test files
+test_debug*.cs
+test_*_debug*.cs
+*_debug.cs
+pipe*.json
+
