@@ -1,5 +1,6 @@
 # 🔄 ToonSharp (C#)
 
+[![NuGet](https://img.shields.io/nuget/v/ToonLib.svg)](https://www.nuget.org/packages/ToonLib)
 [![.NET Version](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
@@ -48,6 +49,26 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON conversion capabili
 * **Formatting tools** for code style consistency
 
 ## 📦 Installation
+
+### Via NuGet Package Manager (Recommended)
+
+```bash
+dotnet add package ToonLib
+```
+
+Or using Package Manager Console in Visual Studio:
+```powershell
+Install-Package ToonLib
+```
+
+Or using NuGet CLI:
+```bash
+nuget install ToonLib
+```
+
+**Package:** [ToonLib on NuGet.org](https://www.nuget.org/packages/ToonLib)
+
+### From Source
 
 ```bash
 # Clone the repository

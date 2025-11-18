@@ -5,11 +5,25 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <Authors>ToonSharp Contributors</Authors>
-    <Description>Conversion utilities between JSON and TOON (Token-Oriented Object Notation)</Description>
-    <Version>0.1.0</Version>
+    
+    <!-- NuGet Package Metadata -->
+    <PackageId>ToonLib</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Christian Palomares</Authors>
+    <Company>ToonSharp Contributors</Company>
+    <Description>A production-grade C# library for converting data between JSON and TOON (Token-Oriented Object Notation) with full TOON SPEC v2.0 compliance. Features parallel processing, Span&lt;T&gt; optimizations, and automatic tabular detection.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/shinjidev/toonsharp-csharp</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/shinjiDev/toonsharp</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/shinjiDev/toonsharp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>toon;json;serialization;parser;data-format;token-optimized;toon-spec;dotnet;csharp</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\"/>
+  </ItemGroup>
 
 </Project>
