@@ -1,0 +1,11 @@
+id: 42
+name: "Bonesborough Relay"
+active: true
+crew:
+  - Luz
+  - Amity
+  - Hunter
+config:
+  mode: readable
+  indent: 2
+

@@ -1,0 +1,12 @@
+manifest:
+  name: "Owl House"
+  destination: Bonesborough
+  cargo[3]{type,count}:
+    glyphs,120
+    "abomination gel",12
+    books,35
+notes:
+  - "Keep cargo bay below 70% humidity"
+  - "Calibrate tabular emitters every 6 hours"
+alerts: null
+

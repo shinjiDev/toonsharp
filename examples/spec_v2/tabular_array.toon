@@ -1,0 +1,7 @@
+crew[3]{id,call,role}:
+  1,AZ,Captain
+  2,EM,Archivist
+  3,HN,Scout
+lastCheck: "2025-05-01T10:15:00Z"
+active: true
+

@@ -1,0 +1,10 @@
+{
+  "crew": [
+    { "id": 1, "call": "AZ", "role": "Captain" },
+    { "id": 2, "call": "EM", "role": "Archivist" },
+    { "id": 3, "call": "HN", "role": "Scout" }
+  ],
+  "lastCheck": "2025-05-01T10:15:00Z",
+  "active": true
+}
+

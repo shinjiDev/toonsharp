@@ -1,0 +1,24 @@
+﻿{
+  "api": {
+    "endpoint": "https:",
+    "timeout": 5000
+  },
+  "data": {
+    "meta": {
+      "items": [
+        "widget",
+        "gadget",
+        "tool"
+      ],
+      "count": 3
+    }
+  },
+  "user": {
+    "preferences": {
+      "tags": [
+        "productivity",
+        "development"
+      ]
+    }
+  }
+}

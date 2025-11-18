@@ -1,0 +1,17 @@
+{
+  "manifest": {
+    "name": "Owl House",
+    "destination": "Bonesborough",
+    "cargo": [
+      { "type": "glyphs", "count": 120 },
+      { "type": "abomination gel", "count": 12 },
+      { "type": "books", "count": 35 }
+    ]
+  },
+  "notes": [
+    "Keep cargo bay below 70% humidity",
+    "Calibrate tabular emitters every 6 hours"
+  ],
+  "alerts": null
+}
+

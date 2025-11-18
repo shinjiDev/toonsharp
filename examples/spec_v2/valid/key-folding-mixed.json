@@ -1,0 +1,19 @@
+﻿{
+  "app": {
+    "name": "MyApp",
+    "version": "2.1.0"
+  },
+  "server": {
+    "host": "localhost",
+    "port": 8080,
+    "ssl": {
+      "enabled": true,
+      "cert": "/path/to/cert.pem"
+    }
+  },
+  "database": {
+    "connection": {
+      "url": "postgresql:"
+    }
+  }
+}

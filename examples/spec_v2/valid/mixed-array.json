@@ -1,0 +1,9 @@
+﻿{
+  "items": [
+    1,
+    {
+      "b": "world"
+    },
+    "text value"
+  ]
+}
