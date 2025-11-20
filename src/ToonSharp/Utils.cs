@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
@@ -120,13 +119,44 @@ public static class Utils
     /// </summary>
     public static object? GuessNumber(string token)
     {
-        if (!NumberRegex.IsMatch(token))
+        return GuessNumber(token.AsSpan());
+    }
+
+    /// <summary>
+    /// Attempt to parse a token as a number (Span-based for performance).
+    /// </summary>
+    public static object? GuessNumber(ReadOnlySpan<char> token)
+    {
+        // Quick check: must start with digit or minus sign
+        if (token.IsEmpty)
         {
             return null;
         }
 
-        if (token.Contains('.') || token.ToLowerInvariant().Contains('e'))
+        // Check if it matches number pattern using regex (need string for regex)
+        // But we can optimize by checking common cases first
+        bool hasDot = false;
+        bool hasE = false;
+        for (int i = 0; i < token.Length; i++)
         {
+            if (token[i] == '.')
+            {
+                hasDot = true;
+            }
+            else if (token[i] == 'e' || token[i] == 'E')
+            {
+                hasE = true;
+            }
+        }
+
+        // Try parsing directly without regex for common cases
+        if (hasDot || hasE)
+        {
+            // For float, we need to validate with regex first
+            if (!NumberRegex.IsMatch(token.ToString()))
+            {
+                return null;
+            }
             if (double.TryParse(token, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double d))
             {
                 return d;
@@ -134,9 +164,15 @@ public static class Utils
         }
         else
         {
+            // For integers, try parse directly (faster)
             if (long.TryParse(token, out long l))
             {
                 return l;
+            }
+            // If direct parse fails, validate with regex
+            if (!NumberRegex.IsMatch(token.ToString()))
+            {
+                return null;
             }
         }
 
