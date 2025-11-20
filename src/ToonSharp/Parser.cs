@@ -79,7 +79,7 @@ public class ToonLexer
 
         while (i < text.Length)
         {
-            if (i < text.Length - 1 && text.Substring(i, 2) == "/*")
+            if (i < text.Length - 1 && text.AsSpan(i, 2).SequenceEqual("/*"))
             {
                 depth++;
                 i += 2;
@@ -88,7 +88,7 @@ public class ToonLexer
 
             if (depth > 0)
             {
-                if (i < text.Length - 1 && text.Substring(i, 2) == "*/")
+                if (i < text.Length - 1 && text.AsSpan(i, 2).SequenceEqual("*/"))
                 {
                     depth--;
                     i += 2;
@@ -142,7 +142,7 @@ public class ToonLexer
                 continue;
             }
 
-            if (!inString && (ch == '#' || (i < line.Length - 1 && line.Substring(i, 2) == "//")))
+            if (!inString && (ch == '#' || (i < line.Length - 1 && line.AsSpan(i, 2).SequenceEqual("//"))))
             {
                 break;
             }
@@ -224,7 +224,7 @@ public class ToonParser
         }
 
         // Scalar value (standalone)
-        var scalar = ParseScalar(line.Content);
+        var scalar = ParseScalarSpan(line.Content.AsSpan());
         currentIndex++;
         return scalar;
     }
@@ -302,7 +302,7 @@ public class ToonParser
             }
             else if (!string.IsNullOrWhiteSpace(valueStr))
             {
-                value = ParseScalar(valueStr.Trim());
+                value = ParseScalarSpan(valueStr.AsSpan().Trim());
             }
             else
             {
@@ -349,7 +349,7 @@ public class ToonParser
             }
             else
             {
-                value = ParseScalar(content);
+                value = ParseScalarSpan(content.AsSpan());
             }
 
             result.Add(value);
@@ -461,7 +461,7 @@ public class ToonParser
                 var row = new Dictionary<string, object?>();
                 for (int j = 0; j < fields.Count; j++)
                 {
-                    row[fields[j]] = ParseScalar(values[j]);
+                    row[fields[j]] = ParseScalarSpan(values[j].AsSpan());
                 }
                 parsedRows[i] = row;
             });
@@ -495,7 +495,7 @@ public class ToonParser
                 var row = new Dictionary<string, object?>();
                 for (int i = 0; i < fields.Count; i++)
                 {
-                    row[fields[i]] = ParseScalar(values[i]);
+                    row[fields[i]] = ParseScalarSpan(values[i].AsSpan());
                 }
                 rows.Add(row);
             }
@@ -548,7 +548,10 @@ public class ToonParser
             if (!inQuotes && i + separator.Length <= line.Length && 
                 line.AsSpan(i, separator.Length).SequenceEqual(separator.AsSpan()))
             {
-                result.Add(current.ToString().Trim());
+                // Optimize: trim the StringBuilder content efficiently
+                var token = current.ToString();
+                var trimmed = token.AsSpan().Trim();
+                result.Add(trimmed.IsEmpty ? string.Empty : trimmed.ToString());
                 current.Clear();
                 i += separator.Length - 1;
                 continue;
@@ -559,7 +562,10 @@ public class ToonParser
 
         if (current.Length > 0)
         {
-            result.Add(current.ToString().Trim());
+            // Optimize: trim the StringBuilder content efficiently
+            var token = current.ToString();
+            var trimmed = token.AsSpan().Trim();
+            result.Add(trimmed.IsEmpty ? string.Empty : trimmed.ToString());
         }
 
         return result;
@@ -626,7 +632,7 @@ public class ToonParser
         var result = new List<object?>();
         foreach (var token in tokens)
         {
-            result.Add(ParseScalar(token));
+            result.Add(ParseScalarSpan(token.AsSpan()));
         }
 
         return result;
@@ -781,45 +787,54 @@ public class ToonParser
 
     private object? ParseScalar(string content)
     {
-        if (string.IsNullOrWhiteSpace(content))
+        return ParseScalarSpan(content.AsSpan());
+    }
+
+    private object? ParseScalarSpan(ReadOnlySpan<char> content)
+    {
+        // Trim with Span (more efficient, no allocations)
+        content = content.Trim();
+
+        if (content.IsEmpty)
         {
             return null;
         }
 
-        content = content.Trim();
+        // Switch with Spans (C# 11+)
+        if (content.SequenceEqual("[]"))
+            return new List<object?>();
+        if (content.SequenceEqual("{}"))
+            return new Dictionary<string, object?>();
+        if (content.SequenceEqual("true"))
+            return true;
+        if (content.SequenceEqual("false"))
+            return false;
+        if (content.SequenceEqual("null"))
+            return null;
 
-        // Empty containers
-        if (content == "[]") return new List<object?>();
-        if (content == "{}") return new Dictionary<string, object?>();
+        // Check for quoted strings
+        if (content.Length >= 2 && content[0] == '"' && content[^1] == '"')
+        {
+            try
+            {
+                // Need string for JsonSerializer
+                return JsonSerializer.Deserialize<string>(content.ToString());
+            }
+            catch
+            {
+                return content.ToString();
+            }
+        }
 
-        // Boolean and null
-        if (content == "true") return true;
-        if (content == "false") return false;
-        if (content == "null") return null;
-
-        // Number
+        // For numbers, use the optimized Span version
         var number = Utils.GuessNumber(content);
         if (number != null)
         {
             return number;
         }
 
-        // String (quoted)
-        if (content.StartsWith('"') && content.EndsWith('"'))
-        {
-            try
-            {
-                return JsonSerializer.Deserialize<string>(content);
-            }
-            catch
-            {
-                // If JSON deserialization fails, return as-is (might be invalid)
-                return content;
-            }
-        }
-
         // Treat any remaining token as a bare string literal (per TOON examples)
-        return content;
+        return content.ToString();
     }
 }
 
