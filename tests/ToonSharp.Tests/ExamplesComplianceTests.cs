@@ -30,7 +30,7 @@ public class ExamplesComplianceTests
 
         Assert.True(
             JsonNode.DeepEquals(expected, actual),
-            $"El ejemplo '{relativeBase}' dejó de coincidir con su JSON de referencia.");
+            $"Example '{relativeBase}' no longer matches its reference JSON.");
     }
 
     [Theory]
@@ -46,7 +46,7 @@ public class ExamplesComplianceTests
 
         Assert.True(
             JsonNode.DeepEquals(expected, roundTrip),
-            $"El ejemplo '{relativeBase}' ya no produce un TOON equivalente.");
+            $"Example '{relativeBase}' no longer produces an equivalent TOON.");
     }
 
     [Theory]
@@ -57,7 +57,7 @@ public class ExamplesComplianceTests
         var toonText = File.ReadAllText(toonPath);
 
         var (isValid, errors) = Api.ValidateToon(toonText);
-        Assert.True(isValid, $"El ejemplo válido '{relativePath}' no superó la validación: {string.Join(", ", errors)}");
+        Assert.True(isValid, $"Valid example '{relativePath}' did not pass validation: {string.Join(", ", errors)}");
 
         var parsed = Api.FromToon(toonText);
         var normalizedOriginal = NormalizeJson(parsed);
@@ -67,7 +67,7 @@ public class ExamplesComplianceTests
 
         Assert.True(
             JsonNode.DeepEquals(normalizedOriginal, roundTrip),
-            $"El ejemplo válido '{relativePath}' perdió información tras el round-trip.");
+            $"Valid example '{relativePath}' lost information after the round trip.");
     }
 
     [Theory]
@@ -163,7 +163,7 @@ public class ExamplesComplianceTests
 
         if (dir == null)
         {
-            throw new InvalidOperationException("No se pudo encontrar la raíz del repositorio.");
+            throw new InvalidOperationException("The repository root could not be found.");
         }
 
         return dir;
