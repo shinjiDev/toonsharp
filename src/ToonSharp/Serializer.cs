@@ -14,10 +14,31 @@ public class ToonSerializer
     private readonly int indent;
     private readonly string mode;
 
+    // Cache indent strings to avoid repeated allocations (up to 20 levels)
+    private static readonly string[] IndentCache = CreateIndentCache(20);
+
+    private static string[] CreateIndentCache(int maxLevel)
+    {
+        var cache = new string[maxLevel];
+        for (int i = 0; i < maxLevel; i++)
+        {
+            cache[i] = new string(' ', i);
+        }
+        return cache;
+    }
+
     public ToonSerializer(int indent = 2, string mode = "auto")
     {
         this.indent = indent;
         this.mode = mode ?? "auto";
+    }
+
+    // Helper method to get indentation efficiently
+    private static string GetIndent(int level)
+    {
+        return level < IndentCache.Length
+            ? IndentCache[level]
+            : new string(' ', level);
     }
 
     public string Dumps(object? obj)
@@ -29,35 +50,84 @@ public class ToonSerializer
 
     private void WriteValue(object? obj, int level, List<string> lines)
     {
+        string indent = GetIndent(level);
+
         if (obj == null)
         {
-            lines.Add(new string(' ', level) + "null");
+            lines.Add(indent + "null");
             return;
         }
 
-        if (obj is Dictionary<string, object?> dict)
+        // Use GetType() for faster exact type checks (consistent with IsInline optimization)
+        var type = obj.GetType();
+
+        // Dictionary - most common container type, check first
+        if (type == typeof(Dictionary<string, object?>))
         {
+            var dict = (Dictionary<string, object?>)obj;
             if (dict.Count == 0)
             {
-                lines.Add(new string(' ', level) + "{}");
+                lines.Add(indent + "{}");
                 return;
             }
             WriteObject(dict, level, lines);
+            return;
         }
-        else if (obj is System.Collections.IEnumerable enumerable && !(obj is string))
+
+        // String must be checked before IEnumerable (string implements IEnumerable)
+        if (type == typeof(string))
         {
-            var items = enumerable.Cast<object?>().ToList();
-            if (items.Count == 0)
+            lines.Add(indent + FormatScalar(obj));
+            return;
+        }
+
+        // List - common case, optimized
+        if (type == typeof(List<object?>))
+        {
+            var list = (List<object?>)obj;
+            if (list.Count == 0)
             {
-                lines.Add(new string(' ', level) + "[]");
+                lines.Add(indent + "[]");
                 return;
             }
-            WriteArray(items, level, lines);
+            WriteArray(list, level, lines);
+            return;
         }
-        else
+
+        // Other IEnumerable (less common, checked last)
+        if (obj is System.Collections.IEnumerable enumerable)
         {
-            lines.Add(new string(' ', level) + FormatScalar(obj));
+            // Optimize for ICollection to avoid unnecessary ToList() when Count is available
+            if (enumerable is System.Collections.ICollection collection)
+            {
+                if (collection.Count == 0)
+                {
+                    lines.Add(indent + "[]");
+                    return;
+                }
+                // Create list with known capacity to reduce allocations
+                var items = new List<object?>(collection.Count);
+                foreach (var item in enumerable)
+                {
+                    items.Add(item);
+                }
+                WriteArray(items, level, lines);
+                return;
+            }
+
+            // Fallback for enumerables without Count
+            var itemsList = enumerable.Cast<object?>().ToList();
+            if (itemsList.Count == 0)
+            {
+                lines.Add(indent + "[]");
+                return;
+            }
+            WriteArray(itemsList, level, lines);
+            return;
         }
+
+        // Scalar by default
+        lines.Add(indent + FormatScalar(obj));
     }
 
     private void WriteObject(Dictionary<string, object?> mapping, int level, List<string> lines)
@@ -92,7 +162,7 @@ public class ToonSerializer
                 }
             }
 
-            var prefix = new string(' ', level) + $"{keyRepr}:";
+            var prefix = GetIndent(level) + $"{keyRepr}:";
             var inlineContainer = InlineContainerRepr(value);
             if (inlineContainer != null)
             {
@@ -131,7 +201,7 @@ public class ToonSerializer
         if (seq.Count >= parallelThreshold && seq.All(IsInline))
         {
             // Fast path: all items are inline, can process in parallel
-            var prefix = new string(' ', level) + "-";
+            var prefix = GetIndent(level) + "-";
             var itemLines = new string[seq.Count];
             Parallel.For(0, seq.Count, i =>
             {
@@ -145,7 +215,7 @@ public class ToonSerializer
             // Sequential processing for small arrays or arrays with complex items
             foreach (var item in seq)
             {
-                var prefix = new string(' ', level) + "-";
+                var prefix = GetIndent(level) + "-";
                 if (IsInline(item))
                 {
                     lines.Add($"{prefix} {FormatScalar(item)}");
@@ -162,7 +232,7 @@ public class ToonSerializer
     private void WriteTableAsKey(string key, List<Dictionary<string, object?>> rows, TabularSchema schema, int level, List<string> lines)
     {
         var fields = string.Join(",", schema.Keys);
-        var header = new string(' ', level) + $"{key}[{rows.Count}]{{{fields}}}:";
+        var header = GetIndent(level) + $"{key}[{rows.Count}]{{{fields}}}:";
         lines.Add(header);
 
         // Use parallel processing for large tables (threshold: 50 rows)
@@ -171,7 +241,7 @@ public class ToonSerializer
         if (rows.Count >= parallelThreshold)
         {
             var rowLines = new string[rows.Count];
-            var indentStr = new string(' ', level + indent);
+            var indentStr = GetIndent(level + indent);
             Parallel.For(0, rows.Count, i =>
             {
                 var row = rows[i];
@@ -196,7 +266,7 @@ public class ToonSerializer
                     var value = row.GetValueOrDefault(k);
                     cells.Add(FormatScalar(value));
                 }
-                var rowLine = new string(' ', level + indent) + string.Join(",", cells);
+                var rowLine = GetIndent(level + indent) + string.Join(",", cells);
                 lines.Add(rowLine);
             }
         }
