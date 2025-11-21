@@ -31,7 +31,7 @@ public class ToonSyntaxError : ToonError
 
     private static string FormatMessage(string message, int? line, int? column)
     {
-        string prefix = "";
+        string prefix = string.Empty;
         if (line.HasValue && column.HasValue)
         {
             prefix = $"(line {line.Value}, column {column.Value}) ";
@@ -65,7 +65,7 @@ public class ValidationError
 
     public override string ToString()
     {
-        string location = "";
+        string location = string.Empty;
         if (Line.HasValue)
         {
             location = $"line {Line.Value}";
