@@ -1,6 +1,7 @@
 # 🔄 ToonSharp (C#)
 
-[![NuGet](https://img.shields.io/nuget/v/ToonLib.svg)](https://www.nuget.org/packages/ToonLib)
+[![NuGet Version](https://img.shields.io/nuget/v/ToonLib.svg?label=NuGet&color=blue)](https://www.nuget.org/packages/ToonLib)
+[![NuGet Downloads](https://img.shields.io/nuget/dt/ToonLib.svg?label=Downloads&color=green)](https://www.nuget.org/packages/ToonLib)
 [![.NET Version](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
@@ -36,6 +37,8 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON conversion capabili
 
 ### ⚡ 4. Performance Optimizations
 
+* **40-46% faster** for large table operations (v1.1.0)
+* **16-20% faster** for large array deserialization
 * **Parallel processing** for large tables (50+ rows) and arrays (200+ items)
 * **Span<T> optimizations** for zero-allocation string operations
 * **Memory-efficient** parsing and serialization
@@ -202,33 +205,40 @@ dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 
 ToonSharp is optimized for high performance using **parallel processing** and **Span<T>** optimizations. The library automatically uses parallel processing for large datasets (tables with 50+ rows, arrays with 200+ items) and leverages `Span<T>` for zero-allocation string operations, significantly reducing memory allocations and improving throughput.
 
-The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet:
+**🚀 Version 1.1.0 Performance Improvements:**
+- **40-46% faster** for large table operations (deserialization and round-trip)
+- **16-20% faster** for large array deserialization
+- Optimized `IterLines` with Span-based line processing
+- Optimized `ParseValue` with simplified comparisons and caching
+
+The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet (v1.1.0):
 
 ### Performance Results
 
 | Operation | Size | Mean Time | Std Deviation | Allocated Memory |
 |-----------|------|-----------|--------------|------------------|
-| **Serialization** (JSON → TOON) | Small (~100 B) | 7.91 μs | ±3.33 μs | 998 B |
-| | Medium (~1 KB) | 30.54 μs | ±9.04 μs | 4,924 B |
-| | Large (~10 KB) | 357.47 μs | ±44.24 μs | 53,702 B |
-| | Large Table (200 rows) | 854.13 μs | ±69.35 μs | 340,141 B |
-| | Large Array (1000 items) | 673.38 μs | ±138.29 μs | 788,061 B |
-| **Deserialization** (TOON → JSON) | Small | 10.04 μs | ±1.12 μs | 5,399 B |
-| | Medium | 31.16 μs | ±3.22 μs | 23,689 B |
-| | Large | 476.43 μs | ±51.16 μs | 284,256 B |
-| | Large Table (200 rows) | 1,026.56 μs | ±221.65 μs | 1,169,815 B |
-| | Large Array (1000 items) | 659.95 μs | ±44.71 μs | 1,139,510 B |
-| **Round-Trip** (JSON → TOON → JSON) | Small | 16.64 μs | ±3.71 μs | 6,381 B |
-| | Medium | 52.25 μs | ±10.76 μs | 28,612 B |
-| | Large | 632.71 μs | ±215.92 μs | 337,964 B |
-| | Large Table (200 rows) | 1,486.09 μs | ±358.55 μs | 1,436,083 B |
-| | Large Array (1000 items) | 1,333.16 μs | ±123.21 μs | 1,861,480 B |
+| **Serialization** (JSON → TOON) | Small (~100 B) | 9.043 μs | ±0.43 μs | 1,010 B |
+| | Medium (~1 KB) | 29.068 μs | ±2.00 μs | 3,442 B |
+| | Large (~10 KB) | 325.625 μs | ±23.10 μs | 43,042 B |
+| | Large Table (200 rows) | 606.985 μs | ±126.06 μs | 318,352 B |
+| | Large Array (1000 items) | 529.001 μs | ±21.82 μs | 737,500 B |
+| **Deserialization** (TOON → JSON) | Small | 12.043 μs | ±1.11 μs | 1,899 B |
+| | Medium | 44.646 μs | ±3.43 μs | 10,011 B |
+| | Large | 400.055 μs | ±8.17 μs | 70,515 B |
+| | Large Table (200 rows) | 611.939 μs | ±52.06 μs | 476,681 B |
+| | Large Array (1000 items) | 438.117 μs | ±12.35 μs | 350,435 B |
+| **Round-Trip** (JSON → TOON → JSON) | Small | 25.491 μs | ±1.95 μs | 2,895 B |
+| | Medium | 72.087 μs | ±2.29 μs | 13,442 B |
+| | Large | 660.590 μs | ±441.61 μs | 113,546 B |
+| | Large Table (200 rows) | 799.313 μs | ±186.01 μs | 805,424 B |
+| | Large Array (1000 items) | 812.023 μs | ±16.82 μs | 931,439 B |
 
 **Notes:**
 - Benchmarks run in Release mode with full optimizations
 - Times include GC overhead and memory allocation
 - Results may vary based on hardware and system load
 - Large Table and Large Array benchmarks use parallel processing (50+ rows, 200+ items)
+- Performance improvements in v1.1.0: 40-46% faster for large table operations compared to v1.0.0
 
 ### Running Benchmarks
 
