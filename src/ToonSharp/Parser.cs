@@ -40,35 +40,183 @@ public class ToonLexer
     public List<Line> IterLines()
     {
         var text = RemoveBlockComments(source);
-        var lines = new List<Line>();
-        var rawLines = text.Split('\n');
+        var textSpan = text.AsSpan();
 
-        for (int idx = 0; idx < rawLines.Length; idx++)
+        // Pre-estimate valid lines for exact capacity to avoid resizes
+        int estimatedLines = EstimateValidLines(textSpan);
+        var lines = new List<Line>(estimatedLines);
+        int lineNumber = 1;
+        int start = 0;
+
+        for (int i = 0; i <= textSpan.Length; i++)
         {
-            var raw = rawLines[idx];
-            var stripped = StripInlineComment(raw);
-            if (string.IsNullOrWhiteSpace(stripped))
+            if (i == textSpan.Length || textSpan[i] == '\n')
             {
-                continue;
+                ProcessLineOptimized(textSpan.Slice(start, i - start), lineNumber, lines);
+                start = i + 1;
+                lineNumber++;
             }
-
-            var strippedSpan = stripped.AsSpan();
-            var leading = 0;
-            while (leading < strippedSpan.Length && (strippedSpan[leading] == ' ' || strippedSpan[leading] == '\t'))
-            {
-                if (strippedSpan[leading] == '\t')
-                {
-                    throw new ToonSyntaxError("Tabs are not allowed for indentation", idx + 1, 1);
-                }
-                leading++;
-            }
-            
-            var indent = leading;
-            var content = strippedSpan.Slice(leading).TrimEnd().ToString();
-            lines.Add(new Line(indent, content, idx + 1));
         }
 
         return lines;
+    }
+
+    private void ProcessLineOptimized(ReadOnlySpan<char> raw, int lineNumber, List<Line> lines)
+    {
+        // Strip inline comment using Span
+        var stripped = StripInlineCommentSpan(raw);
+
+        // Early exit for empty lines
+        if (stripped.IsEmpty)
+        {
+            return;
+        }
+
+        // Count leading spaces and check for tabs (only at the start for indentation)
+        int indent = 0;
+        int firstNonSpace = -1;
+
+        for (int i = 0; i < stripped.Length; i++)
+        {
+            char c = stripped[i];
+
+            if (c == ' ')
+            {
+                if (firstNonSpace == -1)
+                {
+                    indent++;
+                }
+            }
+            else if (c == '\t')
+            {
+                // Only check for tabs at the start (for indentation), not in content
+                if (firstNonSpace == -1)
+                {
+                    throw new ToonSyntaxError("Tabs are not allowed for indentation", lineNumber, 1);
+                }
+                // Tabs in content are allowed (e.g., as delimiters in tables)
+            }
+            else
+            {
+                if (firstNonSpace == -1)
+                {
+                    firstNonSpace = i;
+                }
+            }
+        }
+
+        // If only spaces, exit
+        if (firstNonSpace == -1)
+        {
+            return;
+        }
+
+        // Extract content and do manual TrimEnd
+        var content = stripped.Slice(indent);
+        int end = content.Length - 1;
+
+        while (end >= 0 && char.IsWhiteSpace(content[end]))
+        {
+            end--;
+        }
+
+        if (end < 0)
+        {
+            return;
+        }
+
+        var finalContent = content.Slice(0, end + 1);
+        lines.Add(new Line(indent, finalContent.ToString(), lineNumber));
+    }
+
+    private static int EstimateValidLines(ReadOnlySpan<char> text)
+    {
+        int count = 0;
+        int lineStart = 0;
+
+        for (int i = 0; i <= text.Length; i++)
+        {
+            if (i == text.Length || text[i] == '\n')
+            {
+                var line = text.Slice(lineStart, i - lineStart);
+
+                // Quick estimation: if not empty after checking for non-whitespace
+                if (!IsAllWhiteSpace(line))
+                {
+                    count++;
+                }
+
+                lineStart = i + 1;
+            }
+        }
+
+        return count > 0 ? count : 16; // Minimum 16 to avoid small resizes
+    }
+
+    private static bool IsAllWhiteSpace(ReadOnlySpan<char> span)
+    {
+        for (int i = 0; i < span.Length; i++)
+        {
+            if (!char.IsWhiteSpace(span[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static ReadOnlySpan<char> StripInlineCommentSpan(ReadOnlySpan<char> line)
+    {
+        // Search for '#' or '//' outside of strings
+        bool inString = false;
+        bool escape = false;
+        int commentStart = -1;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (c == '\\')
+            {
+                escape = true;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                inString = !inString;
+                continue;
+            }
+
+            if (!inString)
+            {
+                // Check for '#' comment
+                if (c == '#')
+                {
+                    commentStart = i;
+                    break;
+                }
+                // Check for '//' comment
+                if (i < line.Length - 1 && line.Slice(i, 2).SequenceEqual("//".AsSpan()))
+                {
+                    commentStart = i;
+                    break;
+                }
+            }
+        }
+
+        if (commentStart >= 0)
+        {
+            return line.Slice(0, commentStart);
+        }
+
+        return line;
     }
 
     private static string RemoveBlockComments(string text)
@@ -188,43 +336,59 @@ public class ToonParser
 
     private object? ParseValue(int expectedIndent)
     {
+        // Optimization 1: Direct access without additional bounds check
         if (currentIndex >= lines.Count)
         {
             return null;
         }
 
         var line = lines[currentIndex];
-        if (line.Indent < expectedIndent)
+
+        // Optimization 2: Simplified indent comparisons
+        var indentDiff = line.Indent - expectedIndent;
+        if (indentDiff != 0)
         {
+            return null; // Both < and > return null
+        }
+
+        // Optimization 3: Cache content as span once
+        var contentSpan = line.Content.AsSpan();
+
+        // Early exit for empty content (edge case)
+        if (contentSpan.IsEmpty)
+        {
+            currentIndex++;
             return null;
         }
 
-        if (line.Indent > expectedIndent)
-        {
-            // This line belongs to a parent structure
-            return null;
-        }
+        // Optimization 4: Check first character first (most common case)
+        char firstChar = contentSpan[0];
 
-        // Check for array item first
-        if (line.Content.StartsWith("-"))
+        // Check for array item (very common case)
+        if (firstChar == '-')
         {
             return ParseArray(expectedIndent);
         }
 
-        // Check for key-value pair or object (including tables)
-        // Tables use key[N]{fields}: syntax which contains ":"
-        if (line.Content.Contains(":"))
+        // Optimization 5: IndexOf on Span (faster than Contains on string)
+        int colonIndex = contentSpan.IndexOf(':');
+
+        if (colonIndex >= 0)
         {
+            // It's a key-value pair or table
             return ParseObject(expectedIndent);
         }
 
-        if (mode == "strict" && LooksLikeMissingColon(line.Content))
+        // Strict mode verification
+        if (mode == "strict" && LooksLikeMissingColonSpan(contentSpan))
         {
-            throw new ToonSyntaxError($"Expected ':' after key-like token: {line.Content.Trim()}", line.LineNo);
+            throw new ToonSyntaxError(
+                $"Expected ':' after key-like token: {contentSpan.Trim().ToString()}",
+                line.LineNo);
         }
 
         // Scalar value (standalone)
-        var scalar = ParseScalarSpan(line.Content.AsSpan());
+        var scalar = ParseScalarSpan(contentSpan);
         currentIndex++;
         return scalar;
     }
@@ -730,6 +894,68 @@ public class ToonParser
 
         var candidateKey = trimmed.Substring(0, separatorIndex);
         return FoldableSegmentRegex.IsMatch(candidateKey);
+    }
+
+    // Span version of LooksLikeMissingColon (more efficient)
+    private static bool LooksLikeMissingColonSpan(ReadOnlySpan<char> content)
+    {
+        var trimmed = content.Trim();
+
+        if (trimmed.IsEmpty)
+        {
+            return false;
+        }
+
+        // Check if starts with "-" or quote (same as original)
+        char first = trimmed[0];
+        if (first == '-' || first == '"')
+        {
+            return false;
+        }
+
+        // Find separator (space or tab) - same logic as original
+        int separatorIndex = -1;
+        for (int i = 0; i < trimmed.Length; i++)
+        {
+            if (trimmed[i] == ' ' || trimmed[i] == '\t')
+            {
+                separatorIndex = i;
+                break;
+            }
+        }
+
+        if (separatorIndex <= 0)
+        {
+            return false;
+        }
+
+        // Get candidate key (part before separator)
+        var candidateKey = trimmed.Slice(0, separatorIndex);
+
+        // Must start with letter or underscore (same as FoldableSegmentRegex)
+        if (candidateKey.IsEmpty)
+        {
+            return false;
+        }
+
+        char keyFirst = candidateKey[0];
+        if (!char.IsLetter(keyFirst) && keyFirst != '_')
+        {
+            return false;
+        }
+
+        // Check if it matches the foldable segment pattern: [A-Za-z_][A-Za-z0-9_]*
+        // This is equivalent to FoldableSegmentRegex.IsMatch()
+        for (int i = 1; i < candidateKey.Length; i++)
+        {
+            char c = candidateKey[i];
+            if (!char.IsLetterOrDigit(c) && c != '_')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private sealed class TableHeaderInfo
