@@ -181,94 +181,46 @@ public static class Utils
 
     /// <summary>
     /// Detect tabular schema for a sequence of uniform objects.
+    /// Optimized sequential version - avoids parallel overhead for better performance on medium datasets.
     /// </summary>
     public static TabularSchema? TabularSchema(IEnumerable<Dictionary<string, object?>> rows)
     {
-        var rowList = rows.ToList();
+        var rowList = rows as List<Dictionary<string, object?>> ?? rows.ToList();
+        
         if (rowList.Count == 0)
         {
             return null;
         }
 
-        // Check if all items are dictionaries with the same keys
-        var firstKeys = rowList[0].Keys.ToList();
-        if (firstKeys.Count < 2)
+        var firstDict = rowList[0];
+        if (firstDict.Count < 2)
         {
             return null; // Need at least 2 keys for tabular format
         }
 
-        // Check that all rows have the same keys in the same order
-        // Use parallel processing for large row sets (threshold: 100 rows)
-        // Optimized based on benchmark results
-        const int parallelThreshold = 100;
-        var rowsToCheck = rowList.Skip(1).ToList();
-        
-        if (rowsToCheck.Count >= parallelThreshold)
+        // Use ToArray() for keys - more efficient than ToList() for read-only access
+        var firstKeys = firstDict.Keys.ToArray();
+        var keyCount = firstKeys.Length;
+
+        // Single pass validation - optimized to avoid creating intermediate lists
+        for (int i = 1; i < rowList.Count; i++)
         {
-            // Parallel validation
-            var isValid = true;
-            var lockObj = new object();
-            Parallel.ForEach(rowsToCheck, (row, state) =>
-            {
-                lock (lockObj)
-                {
-                    if (!isValid)
-                    {
-                        state.Stop();
-                        return;
-                    }
-                }
-                
-                var rowKeys = row.Keys.ToList();
-                if (rowKeys.Count != firstKeys.Count)
-                {
-                    lock (lockObj)
-                    {
-                        isValid = false;
-                    }
-                    state.Stop();
-                    return;
-                }
-                
-                // Check that keys match in order
-                for (int i = 0; i < firstKeys.Count; i++)
-                {
-                    if (rowKeys[i] != firstKeys[i])
-                    {
-                        lock (lockObj)
-                        {
-                            isValid = false;
-                        }
-                        state.Stop();
-                        return;
-                    }
-                }
-            });
+            var row = rowList[i];
             
-            if (!isValid)
+            if (row.Count != keyCount)
             {
-                return null;
+                return null; // Different number of keys
             }
-        }
-        else
-        {
-            // Sequential validation for small sets
-            foreach (var row in rowsToCheck)
+
+            // Iterate directly over row.Keys instead of creating ToList()
+            int idx = 0;
+            foreach (var key in row.Keys)
             {
-                var rowKeys = row.Keys.ToList();
-                if (rowKeys.Count != firstKeys.Count)
+                if (idx >= keyCount || key != firstKeys[idx])
                 {
-                    return null; // Different number of keys
+                    return null; // Keys don't match or order is different
                 }
-                
-                // Check that keys match in order
-                for (int i = 0; i < firstKeys.Count; i++)
-                {
-                    if (rowKeys[i] != firstKeys[i])
-                    {
-                        return null; // Keys don't match or order is different
-                    }
-                }
+                idx++;
             }
         }
 
@@ -296,13 +248,13 @@ public static class Utils
         // Always use tabular if savings are positive or neutral
         if (savings >= 0)
         {
-            return new TabularSchema(firstKeys, savings);
+            return new TabularSchema(firstKeys.ToList(), savings);
         }
 
         return null;
     }
 
-    private static int EstimateRegularFormatSize(List<Dictionary<string, object?>> rows, List<string> keys)
+    private static int EstimateRegularFormatSize(List<Dictionary<string, object?>> rows, string[] keys)
     {
         // Estimate: "key:\n  - field1: value1\n    field2: value2\n  - ..."
         int size = keys[0].Length + 2; // "key:\n" (estimate key name)
@@ -322,13 +274,13 @@ public static class Utils
         return size;
     }
 
-    private static int EstimateTabularFormatSize(List<Dictionary<string, object?>> rows, List<string> keys)
+    private static int EstimateTabularFormatSize(List<Dictionary<string, object?>> rows, string[] keys)
     {
         // Estimate: "key[N]{field1,field2}:\n  value1,value2\n  ..."
         // Note: We don't know the key name here, so estimate based on first key
         int size = keys[0].Length + 3; // "key" (estimate)
         size += rows.Count.ToString().Length + 2; // "[N]"
-        size += keys.Sum(k => k.Length) + keys.Count - 1; // "{field1,field2}"
+        size += keys.Sum(k => k.Length) + keys.Length - 1; // "{field1,field2}"
         size += 2; // ":\n"
         
         foreach (var row in rows)

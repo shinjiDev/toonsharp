@@ -13,6 +13,8 @@ public class ToonSerializer
 {
     private readonly int indent;
     private readonly string mode;
+    private readonly int arrayParallelThreshold;
+    private readonly int tableParallelThreshold;
 
     // Cache indent strings to avoid repeated allocations (up to 20 levels)
     private static readonly string[] IndentCache = CreateIndentCache(20);
@@ -27,10 +29,12 @@ public class ToonSerializer
         return cache;
     }
 
-    public ToonSerializer(int indent = 2, string mode = "auto")
+    public ToonSerializer(int indent = 2, string mode = "auto", int arrayParallelThreshold = 200, int tableParallelThreshold = 75)
     {
         this.indent = indent;
         this.mode = mode ?? "auto";
+        this.arrayParallelThreshold = arrayParallelThreshold;
+        this.tableParallelThreshold = tableParallelThreshold;
     }
 
     // Helper method to get indentation efficiently
@@ -137,42 +141,43 @@ public class ToonSerializer
             var keyRepr = Utils.FormatKey(kvp.Key);
             var value = kvp.Value;
 
-            // Check if value is a tabular array (any IEnumerable of dictionaries)
-            if (value is System.Collections.IEnumerable valueEnumerable && !(value is string))
+            // Optimization: check exact type first (avoids unnecessary casting)
+            if (value != null && value.GetType() != typeof(string))
             {
-                var items = valueEnumerable.Cast<object?>().ToList();
-                if (items.Count > 0 && items.All(item => item is Dictionary<string, object?>))
+                // Check if it's List<object?> directly (most common case)
+                if (value is List<object?> list && list.Count > 0)
                 {
-                    var dictList = items.Cast<Dictionary<string, object?>>().ToList();
-                    var schema = Utils.TabularSchema(dictList);
-                    // In compact mode, always use tabular if schema is detected
-                    // In auto mode, use schema if it exists (savings > 0)
-                    // In readable mode, only use if savings > 10
-                    if (schema != null)
+                    if (TryWriteAsTabular(keyRepr, list, level, lines))
+                        continue;
+                }
+                // Fallback for other IEnumerable
+                else if (value is System.Collections.IEnumerable valueEnumerable)
+                {
+                    // Use ICollection to avoid enumerating twice
+                    if (valueEnumerable is System.Collections.ICollection collection && collection.Count > 0)
                     {
-                        bool shouldUseTabular = mode == "compact" || 
-                                              mode == "auto" || 
-                                              (mode == "readable" && schema.Savings > 10);
-                        if (shouldUseTabular)
-                        {
-                            WriteTableAsKey(keyRepr, dictList, schema, level, lines);
+                        if (TryWriteAsTabularFromEnumerable(keyRepr, valueEnumerable, level, lines))
                             continue;
-                        }
                     }
                 }
             }
 
-            var prefix = GetIndent(level) + $"{keyRepr}:";
+            // Cache the prefix (used multiple times)
+            var prefix = string.Concat(GetIndent(level), keyRepr, ":");
+
             var inlineContainer = InlineContainerRepr(value);
             if (inlineContainer != null)
             {
-                lines.Add($"{prefix} {inlineContainer}");
+                lines.Add(string.Concat(prefix, " ", inlineContainer));
                 continue;
             }
 
-            // Check if value is a list or dict that needs block formatting
-            var isContainer = value is Dictionary<string, object?> || 
-                             (value is System.Collections.IEnumerable enumerable && !(value is string));
+            // Optimization: check type only once
+            var isContainer = value != null &&
+                             (value.GetType() == typeof(Dictionary<string, object?>) ||
+                              value.GetType() == typeof(List<object?>) ||
+                              (value is System.Collections.IEnumerable && value.GetType() != typeof(string)));
+
             if (isContainer)
             {
                 lines.Add(prefix);
@@ -180,7 +185,7 @@ public class ToonSerializer
             }
             else if (IsInline(value))
             {
-                lines.Add($"{prefix} {FormatScalar(value)}");
+                lines.Add(string.Concat(prefix, " ", FormatScalar(value)));
             }
             else
             {
@@ -190,40 +195,109 @@ public class ToonSerializer
         }
     }
 
+    // Helper method extracted to avoid code duplication
+    private bool TryWriteAsTabular(string keyRepr, List<object?> items, int level, List<string> lines)
+    {
+        // Early exit: check first element
+        if (items[0] is not Dictionary<string, object?> firstDict)
+            return false;
+
+        // Check remaining elements (optimized with for)
+        for (int i = 1; i < items.Count; i++)
+        {
+            if (items[i] is not Dictionary<string, object?>)
+                return false;
+        }
+
+        // All are dictionaries, create list without additional casting
+        var dictList = new List<Dictionary<string, object?>>(items.Count);
+        for (int i = 0; i < items.Count; i++)
+        {
+            dictList.Add((Dictionary<string, object?>)items[i]!);
+        }
+
+        var schema = Utils.TabularSchema(dictList);
+        if (schema != null)
+        {
+            bool shouldUseTabular = mode == "compact" ||
+                                  mode == "auto" ||
+                                  (mode == "readable" && schema.Savings > 10);
+            if (shouldUseTabular)
+            {
+                WriteTableAsKey(keyRepr, dictList, schema, level, lines);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryWriteAsTabularFromEnumerable(string keyRepr, System.Collections.IEnumerable valueEnumerable, int level, List<string> lines)
+    {
+        var items = valueEnumerable.Cast<object?>().ToList();
+        return items.Count > 0 && TryWriteAsTabular(keyRepr, items, level, lines);
+    }
+
     private void WriteArray(List<object?> seq, int level, List<string> lines)
     {
-        // Arrays are always written with "-" prefix, not as tabular
-        // Tabular format is only used when array is a value in an object
-        
-        // Use parallel processing for large arrays of simple values (threshold: 200 items)
-        // Optimized based on benchmark results showing good performance at 1000 items
-        const int parallelThreshold = 200;
-        if (seq.Count >= parallelThreshold && seq.All(IsInline))
+        var prefix = string.Concat(GetIndent(level), "-");
+
+        // Check if all are inline (optimized)
+        bool allInline = true;
+        for (int i = 0; i < seq.Count; i++)
         {
-            // Fast path: all items are inline, can process in parallel
-            var prefix = GetIndent(level) + "-";
+            if (!IsInline(seq[i]))
+            {
+                allInline = false;
+                break;
+            }
+        }
+
+        // Parallel only if worth it (large arrays AND all inline)
+        if (allInline && seq.Count >= arrayParallelThreshold)
+        {
             var itemLines = new string[seq.Count];
+            var prefixWithSpace = string.Concat(prefix, " ");
+
             Parallel.For(0, seq.Count, i =>
             {
-                var item = seq[i];
-                itemLines[i] = $"{prefix} {FormatScalar(item)}";
+                // Avoid repeated concatenation in each iteration
+                itemLines[i] = string.Concat(prefixWithSpace, FormatScalar(seq[i]));
             });
             lines.AddRange(itemLines);
         }
         else
         {
-            // Sequential processing for small arrays or arrays with complex items
-            foreach (var item in seq)
+            // Sequential optimized: pre-calculate prefix with space
+            if (allInline)
             {
-                var prefix = GetIndent(level) + "-";
-                if (IsInline(item))
+                var prefixWithSpace = string.Concat(prefix, " ");
+                // Known capacity: optimizes List internally
+                var capacity = lines.Capacity;
+                if (lines.Count + seq.Count > capacity)
                 {
-                    lines.Add($"{prefix} {FormatScalar(item)}");
+                    lines.Capacity = lines.Count + seq.Count;
                 }
-                else
+
+                foreach (var item in seq)
                 {
-                    lines.Add(prefix);
-                    WriteValue(item, level + indent, lines);
+                    lines.Add(string.Concat(prefixWithSpace, FormatScalar(item)));
+                }
+            }
+            else
+            {
+                // Complex items (not inline)
+                foreach (var item in seq)
+                {
+                    if (IsInline(item))
+                    {
+                        lines.Add(string.Concat(prefix, " ", FormatScalar(item)));
+                    }
+                    else
+                    {
+                        lines.Add(prefix);
+                        WriteValue(item, level + indent, lines);
+                    }
                 }
             }
         }
@@ -231,43 +305,60 @@ public class ToonSerializer
 
     private void WriteTableAsKey(string key, List<Dictionary<string, object?>> rows, TabularSchema schema, int level, List<string> lines)
     {
+        // Optimization: build header efficiently
         var fields = string.Join(",", schema.Keys);
-        var header = GetIndent(level) + $"{key}[{rows.Count}]{{{fields}}}:";
+        var header = string.Concat(GetIndent(level), key, "[", rows.Count.ToString(), "]{", fields, "}:");
         lines.Add(header);
 
-        // Use parallel processing for large tables (threshold: 50 rows)
-        // Optimized based on benchmark results showing good performance at 200 rows
-        const int parallelThreshold = 50;
-        if (rows.Count >= parallelThreshold)
+        var indentStr = GetIndent(level + indent);
+
+        if (rows.Count >= tableParallelThreshold)
         {
             var rowLines = new string[rows.Count];
-            var indentStr = GetIndent(level + indent);
+            var keysArray = schema.Keys.ToArray(); // Avoid enumerating multiple times
+            var keysCount = keysArray.Length;
+
             Parallel.For(0, rows.Count, i =>
             {
                 var row = rows[i];
-                var cells = new List<string>(schema.Keys.Count);
-                foreach (var k in schema.Keys)
+                // StringBuilder is more efficient for multiple concatenations
+                var sb = new StringBuilder(indentStr.Length + keysCount * 10);
+                sb.Append(indentStr);
+                for (int j = 0; j < keysCount; j++)
                 {
-                    var value = row.GetValueOrDefault(k);
-                    cells.Add(FormatScalar(value));
+                    if (j > 0) sb.Append(',');
+                    var value = row.GetValueOrDefault(keysArray[j]);
+                    sb.Append(FormatScalar(value));
                 }
-                rowLines[i] = indentStr + string.Join(",", cells);
+                rowLines[i] = sb.ToString();
             });
             lines.AddRange(rowLines);
         }
         else
         {
-            // Sequential processing for small tables (less overhead)
+            // Sequential optimized with StringBuilder
+            var keysArray = schema.Keys.ToArray();
+            var keysCount = keysArray.Length;
+
+            // Pre-allocate capacity
+            if (lines.Capacity < lines.Count + rows.Count)
+            {
+                lines.Capacity = lines.Count + rows.Count;
+            }
+
+            // Reuse StringBuilder to reduce allocations
+            var sb = new StringBuilder(indentStr.Length + keysCount * 10);
             foreach (var row in rows)
             {
-                var cells = new List<string>();
-                foreach (var k in schema.Keys)
+                sb.Clear();
+                sb.Append(indentStr);
+                for (int j = 0; j < keysCount; j++)
                 {
-                    var value = row.GetValueOrDefault(k);
-                    cells.Add(FormatScalar(value));
+                    if (j > 0) sb.Append(',');
+                    var value = row.GetValueOrDefault(keysArray[j]);
+                    sb.Append(FormatScalar(value));
                 }
-                var rowLine = GetIndent(level + indent) + string.Join(",", cells);
-                lines.Add(rowLine);
+                lines.Add(sb.ToString());
             }
         }
     }
@@ -305,16 +396,19 @@ public class ToonSerializer
 
     private string? InlineContainerRepr(object? value)
     {
-        // Only return inline representation for empty containers
-        // Non-empty containers should use block formatting
-        if (value is Dictionary<string, object?> dict && dict.Count == 0)
+        if (value == null) return null;
+
+        var type = value.GetType();
+
+        // Type reference comparison (extremely fast)
+        if (type == typeof(Dictionary<string, object?>))
         {
-            return "{}";
+            return ((Dictionary<string, object?>)value).Count == 0 ? "{}" : null;
         }
 
-        if (value is List<object?> list && list.Count == 0)
+        if (type == typeof(List<object?>))
         {
-            return "[]";
+            return ((List<object?>)value).Count == 0 ? "[]" : null;
         }
 
         return null;
