@@ -35,10 +35,11 @@ Added two new commands:
   toonsharp toon-to-yaml --in input.toon --out output.yaml [--permissive]
   ```
 
-### 4. Testing (`tests/ToonSharp.Tests/YamlTests.cs`)
+### 4. Testing
 
-Created comprehensive test suite with 10 test cases:
+Created comprehensive test suite covering unit tests and integration tests using official examples:
 
+#### Unit Tests (`tests/ToonSharp.Tests/YamlTests.cs`)
 1. `YamlToToon_SimpleObject` - Basic YAML to TOON conversion
 2. `ToonToYaml_SimpleObject` - Basic TOON to YAML conversion
 3. `YamlToToon_WithArray` - Array handling in YAML to TOON
@@ -50,7 +51,11 @@ Created comprehensive test suite with 10 test cases:
 9. `YamlToToon_ComplexNestedStructure` - Complex nested data structures
 10. `ToonToYaml_ComplexNestedStructure` - Complex nested data structures
 
-**Result**: All 89 tests passing (including 10 new YAML tests)
+#### Integration Tests (`tests/ToonSharp.Tests/YamlIntegrationTests.cs`)
+1. **`Validate_All_Valid_Examples_ToonToYaml`**: Iterates through all official `.toon` files in `examples/spec_v2/valid`, converts them to YAML, then deserializes to objects to verify structural integrity.
+2. **`Validate_Conversions_Examples_YamlRoundTrip`**: Iterates through `.json` files in `examples/spec_v2/conversions`, converts Object → YAML → TOON → Object to verify full round-trip fidelity across formats.
+
+**Result**: All 91 tests passing (including 12 new YAML tests)
 
 ### 5. Benchmarks (`benchmarks/ToonSharp.Benchmarks/YamlBenchmarks.cs`)
 
@@ -117,7 +122,8 @@ Verified that existing TOON performance was **not degraded** by YAML support:
 - Support for all formatting options (indent, mode, etc.)
 
 ### ✅ Comprehensive Testing
-- 10 new test cases covering all conversion scenarios
+- 12 new test cases covering all conversion scenarios
+- Integration tests using **official spec examples**
 - Complex nested structure tests
 - Round-trip validation tests
 
@@ -138,7 +144,7 @@ Updated `README.md` with:
 
 ## Compatibility
 
-- ✅ All existing tests pass (89/89)
+- ✅ All existing tests pass (91/91)
 - ✅ No breaking changes to existing API
 - ✅ Backward compatible with v1.1.0
 - ✅ No performance degradation
