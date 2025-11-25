@@ -6,20 +6,21 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
 
-A production-grade C# library and CLI that converts data between JSON and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
+A production-grade C# library and CLI that converts data between JSON, YAML, and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
 
 **✅ Full TOON SPEC v2.0 Compliance** - This library implements all examples from the [official TOON specification repository](https://github.com/toon-format/spec/tree/main/examples), ensuring complete compatibility with the standard.
 
 ## ✨ Features
 
-The `ToonSharp` library provides comprehensive JSON ↔ TOON conversion capabilities:
+The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML conversion capabilities:
 
 ### 🔧 1. Lossless Conversion
 
-* **Bidirectional conversion** between JSON-compatible .NET objects and TOON text
+* **Bidirectional conversion** between JSON, YAML, and TOON formats
 * **Round-trip preservation** - data integrity guaranteed
-* Supports all JSON data types (objects, arrays, scalars)
+* Supports all JSON/YAML data types (objects, arrays, scalars)
 * Handles nested structures of any depth
+* **YAML support** - Convert YAML ↔ TOON seamlessly
 
 ### 📊 2. Advanced Parser & Lexer
 
@@ -146,6 +147,31 @@ var toon = Api.ToToon(data, indent: 2, mode: "auto");
 var parsed = Api.FromToon(toon);
 ```
 
+#### YAML Conversion
+
+```csharp
+// YAML → TOON
+var yamlText = @"
+name: Luz
+age: 16
+active: true
+";
+var toon = Api.YamlToToon(yamlText, indent: 2, mode: "auto");
+
+// TOON → YAML
+var toonText = @"
+name: Luz
+age: 16
+active: true
+";
+var yaml = Api.ToonToYaml(toonText);
+
+// Direct YAML serialization/deserialization
+var data = new Dictionary<string, object?> { ["name"] = "Luz" };
+var yamlOutput = Api.ToYaml(data);
+var parsedData = Api.FromYaml(yamlOutput);
+```
+
 #### Validation
 
 ```csharp
@@ -183,6 +209,18 @@ dotnet run --project src/ToonSharp.CLI -- from --in data.toon --out data.json --
 
 ```bash
 dotnet run --project src/ToonSharp.CLI -- fmt --in data.toon --out data.formatted.toon --mode readable
+```
+
+#### Convert YAML to TOON
+
+```bash
+dotnet run --project src/ToonSharp.CLI -- yaml-to-toon --in data.yaml --out data.toon --mode readable --indent 2
+```
+
+#### Convert TOON to YAML
+
+```bash
+dotnet run --project src/ToonSharp.CLI -- toon-to-yaml --in data.toon --out data.yaml --permissive
 ```
 
 **Exit Codes:**
@@ -240,6 +278,33 @@ The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet (v1.
 - Large Table and Large Array benchmarks use parallel processing (50+ rows, 200+ items)
 - Performance improvements in v1.1.0: 40-46% faster for large table operations compared to v1.0.0
 
+### YAML Conversion Performance
+
+ToonSharp also provides high-performance YAML conversion capabilities:
+
+| Operation | Size | Mean Time | Std Deviation | Allocated Memory |
+|-----------|------|-----------|--------------|------------------|
+| **YAML → TOON** | Small (~100 B) | 60.70 μs | ±15.06 μs | 51.28 KB |
+| | Medium (~1 KB) | 405.11 μs | ±100.57 μs | 88.93 KB |
+| | Large (~10 KB) | 427.76 μs | ±107.73 μs | 374.60 KB |
+| **TOON → YAML** | Small | 216.09 μs | ±37.58 μs | 93.27 KB |
+| | Medium | 521.11 μs | ±167.85 μs | 118.56 KB |
+| | Large | 1,775.74 μs | ±1,613.59 μs | 297.87 KB |
+| **YAML Serialization** | Small | 131.81 μs | ±40.69 μs | 91.42 KB |
+| | Medium | 375.87 μs | ±161.67 μs | 108.91 KB |
+| | Large | 1,003.41 μs | ±511.60 μs | 229.86 KB |
+| **YAML Deserialization** | Small | 61.77 μs | ±23.00 μs | 50.36 KB |
+| | Medium | 433.25 μs | ±114.80 μs | 86.03 KB |
+| | Large | 318.75 μs | ±71.52 μs | 337.25 KB |
+| **YAML Round-Trip** | Small | 287.27 μs | ±81.47 μs | 144.57 KB |
+| | Medium | 941.26 μs | ±151.31 μs | 207.54 KB |
+| | Large | 849.10 μs | ±155.34 μs | 672.45 KB |
+
+**YAML Performance Notes:**
+- YAML conversion leverages the YamlDotNet library for robust YAML support
+- Performance is optimized for typical use cases with minimal overhead
+- YAML → TOON conversion is particularly efficient for structured data
+
 ### Running Benchmarks
 
 ```bash
@@ -265,8 +330,10 @@ Comprehensive documentation is available in the `docs/` directory:
 * **Data Serialization**: Efficient storage and transmission of structured data
 * **API Development**: Lightweight data format for REST APIs
 * **Configuration Files**: Human-readable config format with comments support
-* **Data Pipelines**: Stream processing of large JSON datasets
+* **Data Pipelines**: Stream processing of large JSON/YAML datasets
 * **ML/AI Projects**: Token-optimized format for LLM training data
+* **Format Migration**: Convert between JSON, YAML, and TOON seamlessly
+* **DevOps**: Transform configuration files between different formats
 
 ## 📖 Examples
 

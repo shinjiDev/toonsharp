@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 namespace ToonSharp;
 
@@ -107,6 +109,100 @@ public static class Api
         var toon = ToToon(obj, indent, mode);
         output.Write(toon);
         return Encoding.UTF8.GetByteCount(toon);
+    }
+
+    /// <summary>
+    /// Convert a YAML string to TOON format.
+    /// </summary>
+    public static string YamlToToon(string yamlSource, int indent = 2, string mode = "auto")
+    {
+        var deserializer = new DeserializerBuilder()
+            .Build();
+        
+        var obj = deserializer.Deserialize(yamlSource);
+        var normalized = NormalizeYamlObject(obj);
+        return ToToon(normalized, indent, mode);
+    }
+
+    /// <summary>
+    /// Convert a TOON string to YAML format.
+    /// </summary>
+    public static string ToonToYaml(string toonSource, string mode = "strict")
+    {
+        var obj = FromToon(toonSource, mode);
+        
+        var serializer = new SerializerBuilder()
+            .Build();
+        
+        return serializer.Serialize(obj);
+    }
+
+    /// <summary>
+    /// Convert a .NET object to YAML format string.
+    /// </summary>
+    public static string ToYaml(object? obj)
+    {
+        var serializer = new SerializerBuilder()
+            .Build();
+        
+        return serializer.Serialize(obj);
+    }
+
+    /// <summary>
+    /// Parse a YAML string into a .NET object.
+    /// </summary>
+    public static object? FromYaml(string yamlSource)
+    {
+        var deserializer = new DeserializerBuilder()
+            .Build();
+        
+        var obj = deserializer.Deserialize(yamlSource);
+        return NormalizeYamlObject(obj);
+    }
+
+    /// <summary>
+    /// Normalize YAML objects to standard .NET types compatible with TOON.
+    /// </summary>
+    private static object? NormalizeYamlObject(object? obj)
+    {
+        if (obj == null) return null;
+
+        // Handle Dictionary<object, object> from YAML
+        if (obj is Dictionary<object, object> yamlDict)
+        {
+            var result = new Dictionary<string, object?>();
+            foreach (var kvp in yamlDict)
+            {
+                var key = kvp.Key?.ToString() ?? string.Empty;
+                result[key] = NormalizeYamlObject(kvp.Value);
+            }
+            return result;
+        }
+
+        // Handle List<object> from YAML
+        if (obj is List<object> yamlList)
+        {
+            var result = new List<object?>();
+            foreach (var item in yamlList)
+            {
+                result.Add(NormalizeYamlObject(item));
+            }
+            return result;
+        }
+
+        // Handle arrays
+        if (obj is Array array)
+        {
+            var result = new List<object?>();
+            foreach (var item in array)
+            {
+                result.Add(NormalizeYamlObject(item));
+            }
+            return result;
+        }
+
+        // Return primitives as-is
+        return obj;
     }
 }
 
