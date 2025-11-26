@@ -26,14 +26,22 @@ public class TabularSuggestion
     }
 }
 
-/// <summary>
-/// Public API surface for ToonSharp.
-/// </summary>
-public static class Api
-{
     /// <summary>
-    /// Convert a .NET object to TOON format string.
+    /// Public API surface for ToonSharp.
     /// </summary>
+    public static class Api
+    {
+        private static readonly ISerializer _yamlSerializer = new SerializerBuilder()
+            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .Build();
+
+        private static readonly IDeserializer _yamlDeserializer = new DeserializerBuilder()
+            .WithNamingConvention(CamelCaseNamingConvention.Instance)
+            .Build();
+
+        /// <summary>
+        /// Convert a .NET object to TOON format string.
+        /// </summary>
     public static string ToToon(object? obj, int indent = 2, string mode = "auto")
     {
         var serializer = new ToonSerializer(indent, mode);
@@ -116,12 +124,8 @@ public static class Api
     /// </summary>
     public static string YamlToToon(string yamlSource, int indent = 2, string mode = "auto")
     {
-        var deserializer = new DeserializerBuilder()
-            .Build();
-        
-        var obj = deserializer.Deserialize(yamlSource);
-        var normalized = NormalizeYamlObject(obj);
-        return ToToon(normalized, indent, mode);
+        var obj = FromYaml(yamlSource);
+        return ToToon(obj, indent, mode);
     }
 
     /// <summary>
@@ -130,11 +134,7 @@ public static class Api
     public static string ToonToYaml(string toonSource, string mode = "strict")
     {
         var obj = FromToon(toonSource, mode);
-        
-        var serializer = new SerializerBuilder()
-            .Build();
-        
-        return serializer.Serialize(obj);
+        return _yamlSerializer.Serialize(obj);
     }
 
     /// <summary>
@@ -142,10 +142,7 @@ public static class Api
     /// </summary>
     public static string ToYaml(object? obj)
     {
-        var serializer = new SerializerBuilder()
-            .Build();
-        
-        return serializer.Serialize(obj);
+        return _yamlSerializer.Serialize(obj);
     }
 
     /// <summary>
@@ -153,10 +150,7 @@ public static class Api
     /// </summary>
     public static object? FromYaml(string yamlSource)
     {
-        var deserializer = new DeserializerBuilder()
-            .Build();
-        
-        var obj = deserializer.Deserialize(yamlSource);
+        var obj = _yamlDeserializer.Deserialize<object>(yamlSource);
         return NormalizeYamlObject(obj);
     }
 
