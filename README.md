@@ -38,10 +38,12 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML conversion
 
 ### ⚡ 4. Performance Optimizations
 
+* **60-85% faster** YAML serialization (v1.2.0) 🚀
 * **40-46% faster** for large table operations (v1.1.0)
 * **16-20% faster** for large array deserialization
 * **Parallel processing** for large tables (50+ rows) and arrays (200+ items)
 * **Span<T> optimizations** for zero-allocation string operations
+* **Static instance reuse** for YAML serializers/deserializers
 * **Memory-efficient** parsing and serialization
 * **Automatic threshold tuning** based on data size
 
@@ -280,30 +282,33 @@ The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet (v1.
 
 ### YAML Conversion Performance
 
-ToonSharp also provides high-performance YAML conversion capabilities:
+**🚀 Version 1.2.0 YAML Performance Improvements:**
 
-| Operation | Size | Mean Time | Std Deviation | Allocated Memory |
-|-----------|------|-----------|--------------|------------------|
-| **YAML → TOON** | Small (~100 B) | 60.70 μs | ±15.06 μs | 51.28 KB |
-| | Medium (~1 KB) | 405.11 μs | ±100.57 μs | 88.93 KB |
-| | Large (~10 KB) | 427.76 μs | ±107.73 μs | 374.60 KB |
-| **TOON → YAML** | Small | 216.09 μs | ±37.58 μs | 93.27 KB |
-| | Medium | 521.11 μs | ±167.85 μs | 118.56 KB |
-| | Large | 1,775.74 μs | ±1,613.59 μs | 297.87 KB |
-| **YAML Serialization** | Small | 131.81 μs | ±40.69 μs | 91.42 KB |
-| | Medium | 375.87 μs | ±161.67 μs | 108.91 KB |
-| | Large | 1,003.41 μs | ±511.60 μs | 229.86 KB |
-| **YAML Deserialization** | Small | 61.77 μs | ±23.00 μs | 50.36 KB |
-| | Medium | 433.25 μs | ±114.80 μs | 86.03 KB |
-| | Large | 318.75 μs | ±71.52 μs | 337.25 KB |
-| **YAML Round-Trip** | Small | 287.27 μs | ±81.47 μs | 144.57 KB |
-| | Medium | 941.26 μs | ±151.31 μs | 207.54 KB |
-| | Large | 849.10 μs | ±155.34 μs | 672.45 KB |
+ToonSharp v1.2.0 introduces significant YAML performance optimizations through static serializer/deserializer instance reuse:
+
+| Operation | Size | Mean Time | Improvement vs v1.1.0 | Allocated Memory |
+|-----------|------|-----------|----------------------|------------------|
+| **YAML → TOON** | Small (~100 B) | 44.83 μs | **26% faster** | 14.76 KB |
+| | Medium (~1 KB) | 367.26 μs | **9% faster** | 51.78 KB |
+| | Large (~10 KB) | 364.67 μs | **15% faster** | 335.23 KB |
+| **TOON → YAML** | Small | 44.89 μs | **79% faster** 🚀 | 18.51 KB |
+| | Medium | 202.42 μs | **61% faster** 🚀 | 43.8 KB |
+| | Large | 274.42 μs | **85% faster** 🚀 | 223.01 KB |
+| **YAML Serialization** | Small | 34.35 μs | **74% faster** 🚀 | 16.66 KB |
+| | Medium | 145.16 μs | **61% faster** 🚀 | 34.15 KB |
+| | Large | 202.06 μs | **80% faster** 🚀 | 155.03 KB |
+| **YAML Deserialization** | Small | 39.77 μs | **36% faster** 🚀 | 13.85 KB |
+| | Medium | 320.79 μs | **26% faster** | 48.88 KB |
+| | Large | 307.28 μs | **4% faster** | 297.91 KB |
+| **YAML Round-Trip** | Small | 91.75 μs | **68% faster** 🚀 | 33.26 KB |
+| | Medium | 724.83 μs | **23% faster** | 95.57 KB |
+| | Large | 695.73 μs | **18% faster** | 558.3 KB |
 
 **YAML Performance Notes:**
+- v1.2.0 achieves **60-85% faster** YAML serialization through static instance reuse
 - YAML conversion leverages the YamlDotNet library for robust YAML support
-- Performance is optimized for typical use cases with minimal overhead
-- YAML → TOON conversion is particularly efficient for structured data
+- Deserialization improvements are more modest (4-36%) due to parser overhead
+- Memory allocation significantly reduced across all operations
 
 ### Running Benchmarks
 
