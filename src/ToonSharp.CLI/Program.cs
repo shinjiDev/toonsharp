@@ -24,6 +24,8 @@ class Program
                 "to" => HandleToCommand(args),
                 "from" => HandleFromCommand(args),
                 "fmt" => HandleFmtCommand(args),
+                "yaml-to-toon" => HandleYamlToToonCommand(args),
+                "toon-to-yaml" => HandleToonToYamlCommand(args),
                 _ => PrintUsage()
             };
         }
@@ -155,14 +157,90 @@ class Program
         return 0;
     }
 
+    static int HandleYamlToToonCommand(string[] args)
+    {
+        string? inputFile = null;
+        string? outputFile = null;
+        string mode = "auto";
+        int indent = 2;
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--in" when i + 1 < args.Length:
+                    inputFile = args[++i];
+                    break;
+                case "--out" when i + 1 < args.Length:
+                    outputFile = args[++i];
+                    break;
+                case "--mode" when i + 1 < args.Length:
+                    mode = args[++i];
+                    break;
+                case "--indent" when i + 1 < args.Length:
+                    indent = int.Parse(args[++i]);
+                    break;
+            }
+        }
+
+        if (inputFile == null || outputFile == null)
+        {
+            Console.Error.WriteLine("Error: --in and --out are required");
+            return 4;
+        }
+
+        var yamlText = File.ReadAllText(inputFile);
+        var toon = Api.YamlToToon(yamlText, indent, mode);
+        File.WriteAllText(outputFile, toon, Encoding.UTF8);
+
+        return 0;
+    }
+
+    static int HandleToonToYamlCommand(string[] args)
+    {
+        string? inputFile = null;
+        string? outputFile = null;
+        string mode = "strict";
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--in" when i + 1 < args.Length:
+                    inputFile = args[++i];
+                    break;
+                case "--out" when i + 1 < args.Length:
+                    outputFile = args[++i];
+                    break;
+                case "--permissive":
+                    mode = "permissive";
+                    break;
+            }
+        }
+
+        if (inputFile == null || outputFile == null)
+        {
+            Console.Error.WriteLine("Error: --in and --out are required");
+            return 4;
+        }
+
+        var toonText = File.ReadAllText(inputFile);
+        var yaml = Api.ToonToYaml(toonText, mode);
+        File.WriteAllText(outputFile, yaml, Encoding.UTF8);
+
+        return 0;
+    }
+
     static int PrintUsage()
     {
-        Console.WriteLine("ToonSharp CLI - JSON ↔ TOON conversion tool");
+        Console.WriteLine("ToonSharp CLI - JSON ↔ TOON ↔ YAML conversion tool");
         Console.WriteLine();
         Console.WriteLine("Usage:");
         Console.WriteLine("  toonsharp to --in <input.json> --out <output.toon> [--mode auto|compact|readable] [--indent <n>]");
         Console.WriteLine("  toonsharp from --in <input.toon> --out <output.json> [--permissive]");
         Console.WriteLine("  toonsharp fmt --in <input.toon> --out <output.toon> [--mode auto|compact|readable] [--indent <n>]");
+        Console.WriteLine("  toonsharp yaml-to-toon --in <input.yaml> --out <output.toon> [--mode auto|compact|readable] [--indent <n>]");
+        Console.WriteLine("  toonsharp toon-to-yaml --in <input.toon> --out <output.yaml> [--permissive]");
         return 1;
     }
 }

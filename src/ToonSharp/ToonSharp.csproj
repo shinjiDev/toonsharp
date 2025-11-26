@@ -8,22 +8,26 @@
     
     <!-- NuGet Package Metadata -->
     <PackageId>ToonLib</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>Christian Palomares</Authors>
     <Company>ToonSharp Contributors</Company>
-    <Description>A production-grade C# library for converting data between JSON and TOON (Token-Oriented Object Notation) with full TOON SPEC v2.0 compliance. Features parallel processing, Span&lt;T&gt; optimizations, automatic tabular detection, and significant performance improvements (40-46% faster for large table operations).</Description>
+    <Description>A production-grade C# library for converting data between JSON, YAML, and TOON (Token-Oriented Object Notation) with full TOON SPEC v2.0 compliance. Features YAML bidirectional conversion, parallel processing, Span&lt;T&gt; optimizations, automatic tabular detection, and significant performance improvements (40-46% faster for large table operations, 60-85% faster YAML serialization).</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/shinjiDev/toonsharp</PackageProjectUrl>
     <RepositoryUrl>https://github.com/shinjiDev/toonsharp</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>toon;json;serialization;parser;data-format;token-optimized;toon-spec;dotnet;csharp</PackageTags>
+    <PackageTags>toon;json;yaml;serialization;parser;data-format;token-optimized;toon-spec;dotnet;csharp;yaml-converter</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\README.md" Pack="true" PackagePath="\"/>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
 </Project>

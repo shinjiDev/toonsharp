@@ -6,20 +6,21 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
 
-A production-grade C# library and CLI that converts data between JSON and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
+A production-grade C# library and CLI that converts data between JSON, YAML, and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
 
 **✅ Full TOON SPEC v2.0 Compliance** - This library implements all examples from the [official TOON specification repository](https://github.com/toon-format/spec/tree/main/examples), ensuring complete compatibility with the standard.
 
 ## ✨ Features
 
-The `ToonSharp` library provides comprehensive JSON ↔ TOON conversion capabilities:
+The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML conversion capabilities:
 
 ### 🔧 1. Lossless Conversion
 
-* **Bidirectional conversion** between JSON-compatible .NET objects and TOON text
+* **Bidirectional conversion** between JSON, YAML, and TOON formats
 * **Round-trip preservation** - data integrity guaranteed
-* Supports all JSON data types (objects, arrays, scalars)
+* Supports all JSON/YAML data types (objects, arrays, scalars)
 * Handles nested structures of any depth
+* **YAML support** - Convert YAML ↔ TOON seamlessly
 
 ### 📊 2. Advanced Parser & Lexer
 
@@ -37,10 +38,12 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON conversion capabili
 
 ### ⚡ 4. Performance Optimizations
 
+* **60-85% faster** YAML serialization (v1.2.0) 🚀
 * **40-46% faster** for large table operations (v1.1.0)
 * **16-20% faster** for large array deserialization
 * **Parallel processing** for large tables (50+ rows) and arrays (200+ items)
 * **Span<T> optimizations** for zero-allocation string operations
+* **Static instance reuse** for YAML serializers/deserializers
 * **Memory-efficient** parsing and serialization
 * **Automatic threshold tuning** based on data size
 
@@ -146,6 +149,31 @@ var toon = Api.ToToon(data, indent: 2, mode: "auto");
 var parsed = Api.FromToon(toon);
 ```
 
+#### YAML Conversion
+
+```csharp
+// YAML → TOON
+var yamlText = @"
+name: Luz
+age: 16
+active: true
+";
+var toon = Api.YamlToToon(yamlText, indent: 2, mode: "auto");
+
+// TOON → YAML
+var toonText = @"
+name: Luz
+age: 16
+active: true
+";
+var yaml = Api.ToonToYaml(toonText);
+
+// Direct YAML serialization/deserialization
+var data = new Dictionary<string, object?> { ["name"] = "Luz" };
+var yamlOutput = Api.ToYaml(data);
+var parsedData = Api.FromYaml(yamlOutput);
+```
+
 #### Validation
 
 ```csharp
@@ -183,6 +211,18 @@ dotnet run --project src/ToonSharp.CLI -- from --in data.toon --out data.json --
 
 ```bash
 dotnet run --project src/ToonSharp.CLI -- fmt --in data.toon --out data.formatted.toon --mode readable
+```
+
+#### Convert YAML to TOON
+
+```bash
+dotnet run --project src/ToonSharp.CLI -- yaml-to-toon --in data.yaml --out data.toon --mode readable --indent 2
+```
+
+#### Convert TOON to YAML
+
+```bash
+dotnet run --project src/ToonSharp.CLI -- toon-to-yaml --in data.toon --out data.yaml --permissive
 ```
 
 **Exit Codes:**
@@ -240,6 +280,36 @@ The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet (v1.
 - Large Table and Large Array benchmarks use parallel processing (50+ rows, 200+ items)
 - Performance improvements in v1.1.0: 40-46% faster for large table operations compared to v1.0.0
 
+### YAML Conversion Performance
+
+**🚀 Version 1.2.0 YAML Performance Improvements:**
+
+ToonSharp v1.2.0 introduces significant YAML performance optimizations through static serializer/deserializer instance reuse:
+
+| Operation | Size | Mean Time | Improvement vs v1.1.0 | Allocated Memory |
+|-----------|------|-----------|----------------------|------------------|
+| **YAML → TOON** | Small (~100 B) | 44.83 μs | **26% faster** | 14.76 KB |
+| | Medium (~1 KB) | 367.26 μs | **9% faster** | 51.78 KB |
+| | Large (~10 KB) | 364.67 μs | **15% faster** | 335.23 KB |
+| **TOON → YAML** | Small | 44.89 μs | **79% faster** 🚀 | 18.51 KB |
+| | Medium | 202.42 μs | **61% faster** 🚀 | 43.8 KB |
+| | Large | 274.42 μs | **85% faster** 🚀 | 223.01 KB |
+| **YAML Serialization** | Small | 34.35 μs | **74% faster** 🚀 | 16.66 KB |
+| | Medium | 145.16 μs | **61% faster** 🚀 | 34.15 KB |
+| | Large | 202.06 μs | **80% faster** 🚀 | 155.03 KB |
+| **YAML Deserialization** | Small | 39.77 μs | **36% faster** 🚀 | 13.85 KB |
+| | Medium | 320.79 μs | **26% faster** | 48.88 KB |
+| | Large | 307.28 μs | **4% faster** | 297.91 KB |
+| **YAML Round-Trip** | Small | 91.75 μs | **68% faster** 🚀 | 33.26 KB |
+| | Medium | 724.83 μs | **23% faster** | 95.57 KB |
+| | Large | 695.73 μs | **18% faster** | 558.3 KB |
+
+**YAML Performance Notes:**
+- v1.2.0 achieves **60-85% faster** YAML serialization through static instance reuse
+- YAML conversion leverages the YamlDotNet library for robust YAML support
+- Deserialization improvements are more modest (4-36%) due to parser overhead
+- Memory allocation significantly reduced across all operations
+
 ### Running Benchmarks
 
 ```bash
@@ -265,8 +335,10 @@ Comprehensive documentation is available in the `docs/` directory:
 * **Data Serialization**: Efficient storage and transmission of structured data
 * **API Development**: Lightweight data format for REST APIs
 * **Configuration Files**: Human-readable config format with comments support
-* **Data Pipelines**: Stream processing of large JSON datasets
+* **Data Pipelines**: Stream processing of large JSON/YAML datasets
 * **ML/AI Projects**: Token-optimized format for LLM training data
+* **Format Migration**: Convert between JSON, YAML, and TOON seamlessly
+* **DevOps**: Transform configuration files between different formats
 
 ## 📖 Examples
 
