@@ -6,21 +6,22 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
 
-A production-grade C# library and CLI that converts data between JSON, YAML, and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
+A production-grade C# library and CLI that converts data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
 
 **✅ Full TOON SPEC v2.0 Compliance** - This library implements all examples from the [official TOON specification repository](https://github.com/toon-format/spec/tree/main/examples), ensuring complete compatibility with the standard.
 
 ## ✨ Features
 
-The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML conversion capabilities:
+The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML conversion capabilities:
 
 ### 🔧 1. Lossless Conversion
 
-* **Bidirectional conversion** between JSON, YAML, and TOON formats
+* **Bidirectional conversion** between JSON, YAML, TOML, and TOON formats
 * **Round-trip preservation** - data integrity guaranteed
-* Supports all JSON/YAML data types (objects, arrays, scalars)
+* Supports all JSON/YAML/TOML data types (objects, arrays, scalars)
 * Handles nested structures of any depth
 * **YAML support** - Convert YAML ↔ TOON seamlessly
+* **TOML support** - Convert TOML ↔ TOON for configuration files (Rust Cargo.toml, Python pyproject.toml)
 
 ### 📊 2. Advanced Parser & Lexer
 
@@ -174,6 +175,42 @@ var yamlOutput = Api.ToYaml(data);
 var parsedData = Api.FromYaml(yamlOutput);
 ```
 
+#### TOML Conversion
+
+```csharp
+// TOML → TOON (Perfect for Rust Cargo.toml, Python pyproject.toml)
+var tomlText = @"
+[package]
+name = ""my-project""
+version = ""0.1.0""
+
+[dependencies]
+serde = ""1.0""
+tokio = ""1.0""
+";
+var toon = Api.TomlToToon(tomlText, indent: 2, mode: "auto");
+
+// TOON → TOML
+var toonText = @"
+package:
+  name: my-project
+  version: 0.1.0
+dependencies:
+  serde: 1.0
+  tokio: 1.0
+";
+var toml = Api.ToonToToml(toonText);
+
+// Direct TOML serialization/deserialization
+var data = new Dictionary<string, object?> 
+{ 
+    ["name"] = "my-project",
+    ["version"] = "0.1.0"
+};
+var tomlOutput = Api.ToToml(data);
+var parsedData = Api.FromToml(tomlOutput);
+```
+
 #### Validation
 
 ```csharp
@@ -223,6 +260,18 @@ dotnet run --project src/ToonSharp.CLI -- yaml-to-toon --in data.yaml --out data
 
 ```bash
 dotnet run --project src/ToonSharp.CLI -- toon-to-yaml --in data.toon --out data.yaml --permissive
+```
+
+#### Convert TOML to TOON
+
+```bash
+dotnet run --project src/ToonSharp.CLI -- toml-to-toon --in Cargo.toml --out config.toon --mode readable --indent 2
+```
+
+#### Convert TOON to TOML
+
+```bash
+dotnet run --project src/ToonSharp.CLI -- toon-to-toml --in config.toon --out output.toml
 ```
 
 **Exit Codes:**
@@ -310,6 +359,37 @@ ToonSharp v1.2.0 introduces significant YAML performance optimizations through s
 - Deserialization improvements are more modest (4-36%) due to parser overhead
 - Memory allocation significantly reduced across all operations
 
+### TOML Conversion Performance
+
+**🎯 Version 1.3.0 TOML Performance:**
+
+ToonSharp v1.3.0 introduces TOML support with excellent performance characteristics using the Tomlyn library:
+
+| Operation | Size | Mean Time | Allocated Memory |
+|-----------|------|-----------|------------------|
+| **TOML → TOON** | Small (~100 B) | 9.09 μs | 10.77 KB |
+| | Medium (~1 KB) | 35.84 μs | 42.12 KB |
+| | Large (~10 KB) | 435.12 μs | 493.24 KB |
+| **TOON → TOML** | Small | 3.26 μs | 5.36 KB |
+| | Medium | 12.50 μs | 18.35 KB |
+| | Large | 172.30 μs | 216.85 KB |
+| **TOML Serialization** | Small | 2.20 μs | 3.56 KB |
+| | Medium | 5.99 μs | 10.48 KB |
+| | Large | 68.40 μs | 109.33 KB |
+| **TOML Deserialization** | Small | 6.56 μs | 10.05 KB |
+| | Medium | 28.46 μs | 37.08 KB |
+| | Large | 347.66 μs | 419.37 KB |
+| **TOML Round-Trip** | Small | 11.96 μs | 17.17 KB |
+| | Medium | 42.82 μs | 58.04 KB |
+| | Large | 502.88 μs | 638.07 KB |
+
+**TOML Performance Notes:**
+- **Excellent serialization speed**: TOON → TOML is 2-4x faster than YAML serialization
+- **Efficient memory usage**: Lower memory allocation compared to YAML operations
+- **Ideal for configuration files**: Perfect for Rust Cargo.toml, Python pyproject.toml
+- Leverages the high-performance Tomlyn library for TOML parsing
+- Optimized for typical configuration file sizes (small to medium)
+
 ### Running Benchmarks
 
 ```bash
@@ -335,10 +415,11 @@ Comprehensive documentation is available in the `docs/` directory:
 * **Data Serialization**: Efficient storage and transmission of structured data
 * **API Development**: Lightweight data format for REST APIs
 * **Configuration Files**: Human-readable config format with comments support
-* **Data Pipelines**: Stream processing of large JSON/YAML datasets
+* **Data Pipelines**: Stream processing of large JSON/YAML/TOML datasets
 * **ML/AI Projects**: Token-optimized format for LLM training data
-* **Format Migration**: Convert between JSON, YAML, and TOON seamlessly
-* **DevOps**: Transform configuration files between different formats
+* **Format Migration**: Convert between JSON, YAML, TOML, and TOON seamlessly
+* **DevOps & Infrastructure**: Transform configuration files between different formats
+* **Cross-Ecosystem Development**: Convert Rust Cargo.toml ↔ Python pyproject.toml ↔ .NET configs
 
 ## 📖 Examples
 
