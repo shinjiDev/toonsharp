@@ -6,6 +6,8 @@ using System.Text;
 using System.Text.Json;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using Tomlyn;
+using Tomlyn.Model;
 
 namespace ToonSharp;
 
@@ -197,6 +199,211 @@ public class TabularSuggestion
 
         // Return primitives as-is
         return obj;
+    }
+
+    // ============================================
+    // TOML Conversion Methods
+    // ============================================
+
+    /// <summary>
+    /// Convert TOML string to TOON format.
+    /// </summary>
+    public static string TomlToToon(string tomlSource, int indent = 2, string mode = "auto")
+    {
+        var obj = FromToml(tomlSource);
+        return ToToon(obj, indent, mode);
+    }
+
+    /// <summary>
+    /// Convert TOON string to TOML format.
+    /// </summary>
+    public static string ToonToToml(string toonSource)
+    {
+        var obj = FromToon(toonSource);
+        return ToToml(obj);
+    }
+
+    /// <summary>
+    /// Serialize a .NET object to TOML format.
+    /// </summary>
+    public static string ToToml(object? obj)
+    {
+        if (obj == null) return string.Empty;
+        
+        var tomlTable = ConvertToTomlTable(obj);
+        return Toml.FromModel(tomlTable);
+    }
+
+    /// <summary>
+    /// Deserialize TOML string to a .NET object.
+    /// </summary>
+    public static object? FromToml(string tomlSource)
+    {
+        var model = Toml.ToModel(tomlSource);
+        return NormalizeTomlObject(model);
+    }
+
+    /// <summary>
+    /// Convert .NET object to TOML table structure.
+    /// </summary>
+    private static TomlTable ConvertToTomlTable(object? obj)
+    {
+        var table = new TomlTable();
+        
+        if (obj == null) return table;
+
+        if (obj is Dictionary<string, object?> dict)
+        {
+            foreach (var kvp in dict)
+            {
+                table[kvp.Key] = ConvertToTomlValue(kvp.Value);
+            }
+        }
+        else if (obj is IDictionary<string, object?> idict)
+        {
+            foreach (var kvp in idict)
+            {
+                table[kvp.Key] = ConvertToTomlValue(kvp.Value);
+            }
+        }
+
+        return table;
+    }
+
+    /// <summary>
+    /// Convert .NET value to TOML-compatible value.
+    /// </summary>
+    private static object? ConvertToTomlValue(object? value)
+    {
+        if (value == null) return null;
+
+        // Handle dictionaries
+        if (value is Dictionary<string, object?> dict)
+        {
+            return ConvertToTomlTable(dict);
+        }
+
+        // Handle lists/arrays
+        if (value is List<object?> list)
+        {
+            var array = new TomlArray();
+            foreach (var item in list)
+            {
+                var converted = ConvertToTomlValue(item);
+                if (converted != null)
+                {
+                    array.Add(converted);
+                }
+            }
+            return array;
+        }
+
+        // Handle JsonElement (from JSON deserialization)
+        if (value is JsonElement jsonElement)
+        {
+            return jsonElement.ValueKind switch
+            {
+                JsonValueKind.Object => ConvertToTomlTable(JsonElementToDictionary(jsonElement)),
+                JsonValueKind.Array => ConvertToTomlValue(JsonElementToList(jsonElement)),
+                JsonValueKind.String => jsonElement.GetString(),
+                JsonValueKind.Number => jsonElement.TryGetInt64(out var l) ? l : jsonElement.GetDouble(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Null => null,
+                _ => value
+            };
+        }
+
+        // Return primitives as-is
+        return value;
+    }
+
+    /// <summary>
+    /// Normalize TOML objects to standard .NET types compatible with TOON.
+    /// </summary>
+    private static object? NormalizeTomlObject(object? obj)
+    {
+        if (obj == null) return null;
+
+        // Handle TomlTable
+        if (obj is TomlTable tomlTable)
+        {
+            var result = new Dictionary<string, object?>();
+            foreach (var kvp in tomlTable)
+            {
+                result[kvp.Key] = NormalizeTomlObject(kvp.Value);
+            }
+            return result;
+        }
+
+        // Handle TomlArray
+        if (obj is TomlArray tomlArray)
+        {
+            var result = new List<object?>();
+            foreach (var item in tomlArray)
+            {
+                result.Add(NormalizeTomlObject(item));
+            }
+            return result;
+        }
+
+        // Handle arrays
+        if (obj is Array array)
+        {
+            var result = new List<object?>();
+            foreach (var item in array)
+            {
+                result.Add(NormalizeTomlObject(item));
+            }
+            return result;
+        }
+
+        // Return primitives as-is
+        return obj;
+    }
+
+    /// <summary>
+    /// Helper method to convert JsonElement to Dictionary.
+    /// </summary>
+    private static Dictionary<string, object?> JsonElementToDictionary(JsonElement element)
+    {
+        var dict = new Dictionary<string, object?>();
+        foreach (var prop in element.EnumerateObject())
+        {
+            dict[prop.Name] = JsonElementToObject(prop.Value);
+        }
+        return dict;
+    }
+
+    /// <summary>
+    /// Helper method to convert JsonElement to List.
+    /// </summary>
+    private static List<object?> JsonElementToList(JsonElement element)
+    {
+        var list = new List<object?>();
+        foreach (var item in element.EnumerateArray())
+        {
+            list.Add(JsonElementToObject(item));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Helper method to convert JsonElement to object.
+    /// </summary>
+    private static object? JsonElementToObject(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Object => JsonElementToDictionary(element),
+            JsonValueKind.Array => JsonElementToList(element),
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.TryGetInt64(out var l) ? l : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => null,
+            _ => null
+        };
     }
 }
 
