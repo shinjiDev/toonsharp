@@ -479,17 +479,27 @@ public class ToonSerializer
         }
 
         // Handle POCO objects via reflection
-        if (type.IsClass && !type.IsAbstract && type.Namespace != null && !type.Namespace.StartsWith("System"))
+        // Support classes with or without namespace (but not System.* types)
+        if (type.IsClass && !type.IsAbstract)
         {
-            return NormalizePocoObject(obj, type);
+            // Skip System types (but allow user types without namespace)
+            if (type.Namespace == null || !type.Namespace.StartsWith("System"))
+            {
+                var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+                var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
+                if (properties.Length > 0 || fields.Length > 0)
+                {
+                    return NormalizePocoObject(obj, type);
+                }
+            }
         }
 
-        // For other complex types (anonymous types, tuples, etc.), try reflection
-        if (type.IsClass || (type.IsValueType && !type.IsPrimitive && !type.IsEnum))
+        // For other complex types (anonymous types, structs, etc.), try reflection
+        if (type.IsValueType && !type.IsPrimitive && !type.IsEnum)
         {
-            // Check if it's an anonymous type or has public properties
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            if (properties.Length > 0)
+            var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
+            if (properties.Length > 0 || fields.Length > 0)
             {
                 return NormalizePocoObject(obj, type);
             }
