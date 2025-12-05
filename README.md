@@ -551,6 +551,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📋 Release Notes
 
+### v1.4.2 (2024-12-05)
+- **Bugfix**: Fixed root-level POCO list serialization to use tabular format
+- `Api.ToToon(listOfPocos)` now correctly outputs tabular format `[N]{fields}:`
+- Added `TryWriteRootArrayAsTabular` for proper array detection at root level
+
 ### v1.4.1 (2024-12-05)
 - **Bugfix**: Fixed POCO serialization for classes without namespace
 - Classes defined without a `namespace` declaration now serialize correctly to TOON
