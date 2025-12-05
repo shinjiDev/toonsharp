@@ -372,6 +372,51 @@ public class PocoSerializationTests
         Assert.Contains("Locations[2]{", toon);
     }
 
+    [Fact]
+    public void ToToon_RootListOfPocos_SerializesAsTabular()
+    {
+        // Test that a root-level list of POCOs serializes in tabular format
+        var requests = new List<SimplePerson>
+        {
+            new SimplePerson { Name = "Alice", Age = 30, IsActive = true },
+            new SimplePerson { Name = "Bob", Age = 25, IsActive = false },
+            new SimplePerson { Name = "Charlie", Age = 35, IsActive = true }
+        };
+        
+        var toon = Api.ToToon(requests);
+        
+        // Should use tabular format: [3]{Name,Age,IsActive}:
+        Assert.Contains("[3]{", toon);
+        Assert.Contains("Name", toon);
+        Assert.Contains("Age", toon);
+        Assert.Contains("IsActive", toon);
+        Assert.Contains("Alice", toon);
+        Assert.Contains("Bob", toon);
+        Assert.Contains("Charlie", toon);
+        // Should NOT have "-" list markers (those indicate non-tabular format)
+        Assert.DoesNotContain("- ", toon);
+    }
+
+    [Fact]
+    public void ToToon_RootArrayOfPocos_SerializesAsTabular()
+    {
+        // Test with array instead of List
+        var addresses = new Address[]
+        {
+            new Address { Street = "First St", City = "City1", ZipCode = "11111" },
+            new Address { Street = "Second St", City = "City2", ZipCode = "22222" }
+        };
+        
+        var toon = Api.ToToon(addresses);
+        
+        // Should use tabular format: [2]{Street,City,ZipCode}:
+        Assert.Contains("[2]{", toon);
+        Assert.Contains("Street", toon);
+        Assert.Contains("City", toon);
+        Assert.Contains("ZipCode", toon);
+        Assert.DoesNotContain("- ", toon);
+    }
+
     #endregion
 }
 

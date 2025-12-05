@@ -105,6 +105,11 @@ public class ToonSerializer
                 lines.Add(indent + "[]");
                 return;
             }
+            // Try tabular format for root-level arrays of uniform dictionaries
+            if (TryWriteRootArrayAsTabular(list, level, lines))
+            {
+                return;
+            }
             WriteArray(list, level, lines);
             return;
         }
@@ -112,32 +117,26 @@ public class ToonSerializer
         // Other IEnumerable (less common, checked last)
         if (obj is System.Collections.IEnumerable enumerable)
         {
-            // Optimize for ICollection to avoid unnecessary ToList() when Count is available
-            if (enumerable is System.Collections.ICollection collection)
+            // Normalize all items and collect into list
+            var normalizedItems = new List<object?>();
+            foreach (var item in enumerable)
             {
-                if (collection.Count == 0)
-                {
-                    lines.Add(indent + "[]");
-                    return;
-                }
-                // Create list with known capacity to reduce allocations
-                var items = new List<object?>(collection.Count);
-                foreach (var item in enumerable)
-                {
-                    items.Add(item);
-                }
-                WriteArray(items, level, lines);
-                return;
+                normalizedItems.Add(NormalizeObject(item));
             }
-
-            // Fallback for enumerables without Count
-            var itemsList = enumerable.Cast<object?>().ToList();
-            if (itemsList.Count == 0)
+            
+            if (normalizedItems.Count == 0)
             {
                 lines.Add(indent + "[]");
                 return;
             }
-            WriteArray(itemsList, level, lines);
+            
+            // Try tabular format for root-level arrays of uniform dictionaries
+            if (TryWriteRootArrayAsTabular(normalizedItems, level, lines))
+            {
+                return;
+            }
+            
+            WriteArray(normalizedItems, level, lines);
             return;
         }
 
@@ -202,6 +201,89 @@ public class ToonSerializer
             {
                 lines.Add(prefix);
                 WriteValue(value, level + indent, lines);
+            }
+        }
+    }
+
+    // Try to write a root-level array as tabular format
+    private bool TryWriteRootArrayAsTabular(List<object?> items, int level, List<string> lines)
+    {
+        // Early exit: check first element is a dictionary
+        if (items[0] is not Dictionary<string, object?> firstDict)
+            return false;
+
+        // Check remaining elements (optimized with for)
+        for (int i = 1; i < items.Count; i++)
+        {
+            if (items[i] is not Dictionary<string, object?>)
+                return false;
+        }
+
+        // All are dictionaries, create list without additional casting
+        var dictList = new List<Dictionary<string, object?>>(items.Count);
+        for (int i = 0; i < items.Count; i++)
+        {
+            dictList.Add((Dictionary<string, object?>)items[i]!);
+        }
+
+        var schema = Utils.TabularSchema(dictList);
+        if (schema != null)
+        {
+            bool shouldUseTabular = mode == "compact" ||
+                                  mode == "auto" ||
+                                  (mode == "readable" && schema.Savings > 10);
+            if (shouldUseTabular)
+            {
+                WriteRootTable(dictList, schema, level, lines);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Write a root-level tabular array (no key name)
+    private void WriteRootTable(List<Dictionary<string, object?>> rows, TabularSchema schema, int level, List<string> lines)
+    {
+        var fields = string.Join(",", schema.Keys);
+        var header = string.Concat(GetIndent(level), "[", rows.Count.ToString(), "]{", fields, "}:");
+        lines.Add(header);
+
+        var indentStr = GetIndent(level + indent);
+        var keysArray = schema.Keys.ToArray();
+        var keysCount = keysArray.Length;
+
+        if (rows.Count >= tableParallelThreshold)
+        {
+            var rowLines = new string[rows.Count];
+            Parallel.For(0, rows.Count, i =>
+            {
+                var row = rows[i];
+                var sb = new StringBuilder(indentStr.Length + keysCount * 10);
+                sb.Append(indentStr);
+                for (int j = 0; j < keysCount; j++)
+                {
+                    if (j > 0) sb.Append(',');
+                    var value = row.GetValueOrDefault(keysArray[j]);
+                    sb.Append(FormatScalar(value));
+                }
+                rowLines[i] = sb.ToString();
+            });
+            lines.AddRange(rowLines);
+        }
+        else
+        {
+            foreach (var row in rows)
+            {
+                var sb = new StringBuilder(indentStr.Length + keysCount * 10);
+                sb.Append(indentStr);
+                for (int j = 0; j < keysCount; j++)
+                {
+                    if (j > 0) sb.Append(',');
+                    var value = row.GetValueOrDefault(keysArray[j]);
+                    sb.Append(FormatScalar(value));
+                }
+                lines.Add(sb.ToString());
             }
         }
     }
