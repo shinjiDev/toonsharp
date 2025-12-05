@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace ToonSharp;
@@ -56,6 +58,15 @@ public class ToonSerializer
     {
         string indent = GetIndent(level);
 
+        if (obj == null)
+        {
+            lines.Add(indent + "null");
+            return;
+        }
+
+        // Normalize complex types (JsonElement, POCO) to Dictionary/List/primitives
+        obj = NormalizeObject(obj);
+        
         if (obj == null)
         {
             lines.Add(indent + "null");
@@ -417,6 +428,171 @@ public class ToonSerializer
     private string FormatScalar(object? value)
     {
         return Utils.FormatScalar(value);
+    }
+
+    /// <summary>
+    /// Normalize an object to TOON-compatible types (Dictionary, List, primitives).
+    /// Handles JsonElement, POCO objects, and other complex types.
+    /// </summary>
+    private object? NormalizeObject(object? obj)
+    {
+        if (obj == null) return null;
+
+        var type = obj.GetType();
+
+        // Already normalized types - return as-is
+        if (type == typeof(Dictionary<string, object?>) ||
+            type == typeof(List<object?>) ||
+            type == typeof(string) ||
+            type.IsPrimitive ||
+            type == typeof(decimal))
+        {
+            return obj;
+        }
+
+        // Handle JsonElement (from System.Text.Json deserialization)
+        if (obj is JsonElement jsonElement)
+        {
+            return NormalizeJsonElement(jsonElement);
+        }
+
+        // Handle IDictionary<string, object?> variants
+        if (obj is IDictionary<string, object?> dictInterface)
+        {
+            var result = new Dictionary<string, object?>();
+            foreach (var kvp in dictInterface)
+            {
+                result[kvp.Key] = NormalizeObject(kvp.Value);
+            }
+            return result;
+        }
+
+        // Handle generic lists/arrays
+        if (obj is System.Collections.IEnumerable enumerable && type != typeof(string))
+        {
+            var result = new List<object?>();
+            foreach (var item in enumerable)
+            {
+                result.Add(NormalizeObject(item));
+            }
+            return result;
+        }
+
+        // Handle POCO objects via reflection
+        if (type.IsClass && !type.IsAbstract && type.Namespace != null && !type.Namespace.StartsWith("System"))
+        {
+            return NormalizePocoObject(obj, type);
+        }
+
+        // For other complex types (anonymous types, tuples, etc.), try reflection
+        if (type.IsClass || (type.IsValueType && !type.IsPrimitive && !type.IsEnum))
+        {
+            // Check if it's an anonymous type or has public properties
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            if (properties.Length > 0)
+            {
+                return NormalizePocoObject(obj, type);
+            }
+        }
+
+        // Return primitive-like types as-is
+        return obj;
+    }
+
+    /// <summary>
+    /// Convert a JsonElement to normalized .NET types.
+    /// </summary>
+    private object? NormalizeJsonElement(JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                var dict = new Dictionary<string, object?>();
+                foreach (var prop in element.EnumerateObject())
+                {
+                    dict[prop.Name] = NormalizeJsonElement(prop.Value);
+                }
+                return dict;
+
+            case JsonValueKind.Array:
+                var list = new List<object?>();
+                foreach (var item in element.EnumerateArray())
+                {
+                    list.Add(NormalizeJsonElement(item));
+                }
+                return list;
+
+            case JsonValueKind.String:
+                return element.GetString();
+
+            case JsonValueKind.Number:
+                // Try to preserve integer types when possible
+                if (element.TryGetInt64(out var longValue))
+                {
+                    // Use int if it fits, otherwise long
+                    if (longValue >= int.MinValue && longValue <= int.MaxValue)
+                        return (int)longValue;
+                    return longValue;
+                }
+                return element.GetDouble();
+
+            case JsonValueKind.True:
+                return true;
+
+            case JsonValueKind.False:
+                return false;
+
+            case JsonValueKind.Null:
+            case JsonValueKind.Undefined:
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>
+    /// Convert a POCO object to a Dictionary using reflection.
+    /// </summary>
+    private Dictionary<string, object?> NormalizePocoObject(object obj, Type type)
+    {
+        var result = new Dictionary<string, object?>();
+        
+        // Get all public instance properties
+        var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        foreach (var prop in properties)
+        {
+            // Skip indexed properties
+            if (prop.GetIndexParameters().Length > 0) continue;
+            
+            // Skip properties that can't be read
+            if (!prop.CanRead) continue;
+
+            try
+            {
+                var value = prop.GetValue(obj);
+                result[prop.Name] = NormalizeObject(value);
+            }
+            catch
+            {
+                // Skip properties that throw exceptions
+            }
+        }
+
+        // Also check public fields
+        var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance);
+        foreach (var field in fields)
+        {
+            try
+            {
+                var value = field.GetValue(obj);
+                result[field.Name] = NormalizeObject(value);
+            }
+            catch
+            {
+                // Skip fields that throw exceptions
+            }
+        }
+
+        return result;
     }
 }
 
