@@ -45,36 +45,6 @@ public class ToonSyntaxError : ToonError
 }
 
 /// <summary>
-/// Raised when attempting to parse an unsupported format (e.g., XML).
-/// This exception is thrown when the input is detected to be in a format
-/// that ToonSharp cannot convert.
-/// </summary>
-public class UnsupportedFormatException : ToonError
-{
-    /// <summary>
-    /// The detected format name (e.g., "XML", "Unknown").
-    /// </summary>
-    public string DetectedFormat { get; }
-
-    /// <summary>
-    /// List of formats that are supported by ToonSharp.
-    /// </summary>
-    public static readonly string[] SupportedFormats = { "JSON", "YAML", "TOML", "TOON" };
-
-    public UnsupportedFormatException(string detectedFormat)
-        : base($"Unsupported format '{detectedFormat}'. Supported formats: {string.Join(", ", SupportedFormats)}")
-    {
-        DetectedFormat = detectedFormat;
-    }
-
-    public UnsupportedFormatException(string detectedFormat, string additionalInfo)
-        : base($"Unsupported format '{detectedFormat}': {additionalInfo}. Supported formats: {string.Join(", ", SupportedFormats)}")
-    {
-        DetectedFormat = detectedFormat;
-    }
-}
-
-/// <summary>
 /// Represents a validation finding emitted by ValidateToon.
 /// Includes location information and severity level for use in linting tools.
 /// </summary>

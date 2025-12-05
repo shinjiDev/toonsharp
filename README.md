@@ -216,9 +216,14 @@ var parsedData = Api.FromToml(tomlOutput);
 #### JSON String Conversion (v1.4.0)
 
 ```csharp
-// Direct JSON string → TOON (auto-detects and converts JsonElement)
+using System.Text.Json;
+
+// Direct JSON string → TOON (via JsonElement deserialization)
 var jsonString = @"{""DocumentId"":""DOC-2024-001"",""Content"":""Analysis report..."",""MaxTokens"":500,""Metrics"":[""sentiment"",""topics""]}";
-var toon = Api.JsonToToon(jsonString, indent: 2, mode: "auto");
+
+// Deserialize JSON to object (returns JsonElement) and convert to TOON
+var obj = JsonSerializer.Deserialize<object>(jsonString);
+var toon = Api.ToToon(obj, indent: 2, mode: "auto");
 // Output:
 // DocumentId: DOC-2024-001
 // Content: "Analysis report..."
@@ -226,9 +231,6 @@ var toon = Api.JsonToToon(jsonString, indent: 2, mode: "auto");
 // Metrics:
 //   - sentiment
 //   - topics
-
-// Parse JSON string to .NET object with format validation
-var obj = Api.FromJson(jsonString);
 ```
 
 #### POCO Object Serialization (v1.4.0)
@@ -259,29 +261,6 @@ var toon = Api.ToToon(person);
 // Also works with anonymous types
 var anon = new { Title = "Report", Value = 123 };
 var toonAnon = Api.ToToon(anon);
-```
-
-#### Format Validation (v1.4.0)
-
-```csharp
-// Detect input format
-var format = Api.DetectFormat("<xml>data</xml>");  // Returns "XML"
-var format2 = Api.DetectFormat("{\"key\": \"value\"}");  // Returns "JSON"
-
-// Check if format is supported
-bool isSupported = Api.IsFormatSupported("JSON");  // true
-bool isNotSupported = Api.IsFormatSupported("XML");  // false
-
-// JsonToToon throws UnsupportedFormatException for invalid formats
-try
-{
-    var toon = Api.JsonToToon("<xml>not json</xml>");
-}
-catch (UnsupportedFormatException ex)
-{
-    Console.WriteLine($"Format '{ex.DetectedFormat}' is not supported");
-    Console.WriteLine($"Supported formats: {string.Join(", ", UnsupportedFormatException.SupportedFormats)}");
-}
 ```
 
 #### Validation
@@ -473,35 +452,34 @@ ToonSharp v1.4.0 introduces direct serialization support for `JsonElement` (from
 
 | Operation | Size | Mean Time | Allocated Memory | Ratio vs Dictionary |
 |-----------|------|-----------|------------------|---------------------|
-| **JsonElement → TOON** | Small (~100 B) | 14.92 μs | 1.72 KB | 4.96x |
-| | Medium (~1 KB) | 37.06 μs | 7.72 KB | 12.25x |
-| | Large (~10 KB) | 608.36 μs | 289.07 KB | 203.94x |
-| **JSON String → TOON** | Small | 11.91 μs | 2.05 KB | 4.25x |
-| | Medium | 37.11 μs | 8.75 KB | 11.88x |
-| | Large | 782.60 μs | 309.54 KB | 254.25x |
-| **Dictionary (Baseline)** | Small | 3.15 μs | 1.00 KB | 1.00x |
-| | Medium | 9.94 μs | 5.38 KB | 3.31x |
-| | Large | 311.06 μs | 184.91 KB | 95.48x |
+| **JsonElement → TOON** | Small (~100 B) | 4.24 μs | 1.72 KB | 1.27x |
+| | Medium (~1 KB) | 14.78 μs | 7.73 KB | 4.30x |
+| | Large (~10 KB) | 423.17 μs | 293.76 KB | 123.18x |
+| **JSON String → TOON** | Small | 11.36 μs | 2.05 KB | 3.32x |
+| | Medium | 33.83 μs | 8.75 KB | 9.84x |
+| | Large | 630.05 μs | 321.18 KB | 183.79x |
+| **Dictionary (Baseline)** | Small | 3.63 μs | 1.01 KB | 1.00x |
+| | Medium | 9.66 μs | 5.38 KB | 2.79x |
+| | Large | 351.34 μs | 185.23 KB | 99.92x |
 
 #### POCO Object Serialization (C# Class → TOON)
 
 | Operation | Size | Mean Time | Allocated Memory | Ratio vs Dictionary |
 |-----------|------|-----------|------------------|---------------------|
-| **POCO → TOON** | Small (4 props) | 9.18 μs | 1.70 KB | 2.27x |
-| | Medium (~10 props) | 25.93 μs | 7.08 KB | 6.69x |
-| | Large (100 objects) | 580.61 μs | 255.28 KB | 149.90x |
-| **Anonymous Type → TOON** | Small | 13.15 μs | 1.80 KB | 3.46x |
-| | Medium | 15.82 μs | 3.62 KB | 4.37x |
+| **POCO → TOON** | Small (4 props) | 12.42 μs | 1.70 KB | 3.49x |
+| | Medium (~10 props) | 24.20 μs | 7.09 KB | 6.45x |
+| | Large (100 objects) | 535.97 μs | 248.92 KB | 142.22x |
+| **Anonymous Type → TOON** | Small | 11.35 μs | 1.80 KB | 2.93x |
+| | Medium | 13.57 μs | 3.62 KB | 3.69x |
 | **Dictionary (Baseline)** | Small | 3.90 μs | 1.01 KB | 1.00x |
-| | Medium | 10.70 μs | 5.38 KB | 2.88x |
-| | Large | 304.44 μs | 183.63 KB | 75.13x |
+| | Medium | 10.04 μs | 5.38 KB | 2.70x |
+| | Large | 345.43 μs | 184.51 KB | 93.61x |
 
 **JsonElement & POCO Performance Notes:**
-- **Direct JSON support**: No need to manually convert JSON strings to dictionaries
+- **JsonElement near-native speed**: Only 1.27x overhead vs pre-built dictionaries for small objects
 - **POCO serialization via reflection**: Serialize any C# class directly to TOON
 - **Anonymous types support**: Works with `new { ... }` syntax
-- **2-5x overhead vs pre-built dictionaries**: Acceptable for most use cases
-- **Format validation**: Automatically detects and rejects unsupported formats (XML, HTML, CSV)
+- **2-4x overhead for typical use cases**: Excellent performance for most scenarios
 
 ### Running Benchmarks
 

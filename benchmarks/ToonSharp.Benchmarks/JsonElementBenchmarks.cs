@@ -148,25 +148,28 @@ public class JsonElementBenchmarks
     }
 
     // ============================================
-    // Full Pipeline: JSON String -> TOON
+    // Full Pipeline: JSON String -> Deserialize -> TOON
     // ============================================
 
     [Benchmark]
-    public string JsonToToon_Small()
+    public string JsonStringToToon_Small()
     {
-        return Api.JsonToToon(_smallJson);
+        var obj = JsonSerializer.Deserialize<object>(_smallJson);
+        return Api.ToToon(obj);
     }
 
     [Benchmark]
-    public string JsonToToon_Medium()
+    public string JsonStringToToon_Medium()
     {
-        return Api.JsonToToon(_mediumJson);
+        var obj = JsonSerializer.Deserialize<object>(_mediumJson);
+        return Api.ToToon(obj);
     }
 
     [Benchmark]
-    public string JsonToToon_Large()
+    public string JsonStringToToon_Large()
     {
-        return Api.JsonToToon(_largeJson);
+        var obj = JsonSerializer.Deserialize<object>(_largeJson);
+        return Api.ToToon(obj);
     }
 
     // ============================================
