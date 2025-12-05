@@ -40,7 +40,7 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML c
 ### ⚡ 4. Performance Optimizations
 
 * **Direct JSON string support** via `JsonElement` serialization (v1.4.0) 🚀
-* **POCO object serialization** via reflection (v1.4.0) 🚀
+* **POCO object serialization** via reflection (v1.4.0, improved in v1.4.1) 🚀
 * **60-85% faster** YAML serialization (v1.2.0)
 * **40-46% faster** for large table operations (v1.1.0)
 * **16-20% faster** for large array deserialization
@@ -233,10 +233,11 @@ var toon = Api.ToToon(obj, indent: 2, mode: "auto");
 //   - topics
 ```
 
-#### POCO Object Serialization (v1.4.0)
+#### POCO Object Serialization (v1.4.0, v1.4.1)
 
 ```csharp
 // Serialize any C# class directly to TOON
+// Works with or without namespace (v1.4.1 fix)
 public class Person
 {
     public string Name { get; set; }
@@ -258,7 +259,7 @@ var toon = Api.ToToon(person);
 //   - developer
 //   - blogger
 
-// Also works with anonymous types
+// Also works with anonymous types and classes without namespace
 var anon = new { Title = "Report", Value = 123 };
 var toonAnon = Api.ToToon(anon);
 ```
@@ -547,6 +548,30 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Update documentation as needed
 - Ensure all tests pass: `dotnet test`
 - Keep additions aligned with TOON SPEC v2.0
+
+## 📋 Release Notes
+
+### v1.4.1 (2024-12-05)
+- **Bugfix**: Fixed POCO serialization for classes without namespace
+- Classes defined without a `namespace` declaration now serialize correctly to TOON
+- Improved reflection logic for detecting serializable types
+
+### v1.4.0 (2024-12-04)
+- **New**: Direct `JsonElement` serialization support
+- **New**: POCO object serialization via reflection
+- **New**: Anonymous type serialization support
+
+### v1.3.0 (2024-12-03)
+- **New**: TOML ↔ TOON bidirectional conversion
+- **New**: CLI commands for TOML conversion
+
+### v1.2.0 (2024-12-02)
+- **New**: YAML ↔ TOON bidirectional conversion
+- **Performance**: 60-85% faster YAML serialization with static instance reuse
+
+### v1.1.0 (2024-12-01)
+- **Performance**: 40-46% faster large table operations
+- **Performance**: Parallel processing for large datasets
 
 ## 📄 License
 
