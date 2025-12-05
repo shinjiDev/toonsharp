@@ -8,15 +8,15 @@
     
     <!-- NuGet Package Metadata -->
     <PackageId>ToonLib</PackageId>
-    <Version>1.3.0</Version>
+    <Version>1.4.0</Version>
     <Authors>Christian Palomares</Authors>
     <Company>ToonSharp Contributors</Company>
-    <Description>A production-grade C# library for converting data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) with full TOON SPEC v2.0 compliance. Features YAML/TOML bidirectional conversion, parallel processing, Span&lt;T&gt; optimizations, automatic tabular detection, and significant performance improvements. Perfect for cross-ecosystem configuration management (Rust Cargo.toml, Python pyproject.toml).</Description>
+    <Description>A production-grade C# library for converting data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) with full TOON SPEC v2.0 compliance. Features direct JSON string serialization (JsonElement), POCO object serialization via reflection, YAML/TOML bidirectional conversion, format validation (rejects XML/HTML/CSV), parallel processing, and Span&lt;T&gt; optimizations. Perfect for cross-ecosystem configuration management.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/shinjiDev/toonsharp</PackageProjectUrl>
     <RepositoryUrl>https://github.com/shinjiDev/toonsharp</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>toon;json;yaml;toml;serialization;parser;data-format;token-optimized;toon-spec;dotnet;csharp;yaml-converter;toml-converter;cargo;pyproject</PackageTags>
+    <PackageTags>toon;json;yaml;toml;serialization;parser;data-format;token-optimized;toon-spec;dotnet;csharp;yaml-converter;toml-converter;poco;reflection;jsonelement</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>

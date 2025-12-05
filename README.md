@@ -39,7 +39,9 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML c
 
 ### ⚡ 4. Performance Optimizations
 
-* **60-85% faster** YAML serialization (v1.2.0) 🚀
+* **Direct JSON string support** via `JsonElement` serialization (v1.4.0) 🚀
+* **POCO object serialization** via reflection (v1.4.0) 🚀
+* **60-85% faster** YAML serialization (v1.2.0)
 * **40-46% faster** for large table operations (v1.1.0)
 * **16-20% faster** for large array deserialization
 * **Parallel processing** for large tables (50+ rows) and arrays (200+ items)
@@ -209,6 +211,77 @@ var data = new Dictionary<string, object?>
 };
 var tomlOutput = Api.ToToml(data);
 var parsedData = Api.FromToml(tomlOutput);
+```
+
+#### JSON String Conversion (v1.4.0)
+
+```csharp
+// Direct JSON string → TOON (auto-detects and converts JsonElement)
+var jsonString = @"{""DocumentId"":""DOC-2024-001"",""Content"":""Analysis report..."",""MaxTokens"":500,""Metrics"":[""sentiment"",""topics""]}";
+var toon = Api.JsonToToon(jsonString, indent: 2, mode: "auto");
+// Output:
+// DocumentId: DOC-2024-001
+// Content: "Analysis report..."
+// MaxTokens: 500
+// Metrics:
+//   - sentiment
+//   - topics
+
+// Parse JSON string to .NET object with format validation
+var obj = Api.FromJson(jsonString);
+```
+
+#### POCO Object Serialization (v1.4.0)
+
+```csharp
+// Serialize any C# class directly to TOON
+public class Person
+{
+    public string Name { get; set; }
+    public int Age { get; set; }
+    public List<string> Tags { get; set; }
+}
+
+var person = new Person 
+{ 
+    Name = "Alice", 
+    Age = 30, 
+    Tags = new List<string> { "developer", "blogger" } 
+};
+var toon = Api.ToToon(person);
+// Output:
+// Name: Alice
+// Age: 30
+// Tags:
+//   - developer
+//   - blogger
+
+// Also works with anonymous types
+var anon = new { Title = "Report", Value = 123 };
+var toonAnon = Api.ToToon(anon);
+```
+
+#### Format Validation (v1.4.0)
+
+```csharp
+// Detect input format
+var format = Api.DetectFormat("<xml>data</xml>");  // Returns "XML"
+var format2 = Api.DetectFormat("{\"key\": \"value\"}");  // Returns "JSON"
+
+// Check if format is supported
+bool isSupported = Api.IsFormatSupported("JSON");  // true
+bool isNotSupported = Api.IsFormatSupported("XML");  // false
+
+// JsonToToon throws UnsupportedFormatException for invalid formats
+try
+{
+    var toon = Api.JsonToToon("<xml>not json</xml>");
+}
+catch (UnsupportedFormatException ex)
+{
+    Console.WriteLine($"Format '{ex.DetectedFormat}' is not supported");
+    Console.WriteLine($"Supported formats: {string.Join(", ", UnsupportedFormatException.SupportedFormats)}");
+}
 ```
 
 #### Validation
@@ -389,6 +462,46 @@ ToonSharp v1.3.0 introduces TOML support with excellent performance characterist
 - **Ideal for configuration files**: Perfect for Rust Cargo.toml, Python pyproject.toml
 - Leverages the high-performance Tomlyn library for TOML parsing
 - Optimized for typical configuration file sizes (small to medium)
+
+### JSON & Object Serialization Performance
+
+**🚀 Version 1.4.0 JsonElement & POCO Support:**
+
+ToonSharp v1.4.0 introduces direct serialization support for `JsonElement` (from `System.Text.Json`) and POCO objects via reflection:
+
+#### JsonElement Serialization (JSON String → TOON)
+
+| Operation | Size | Mean Time | Allocated Memory | Ratio vs Dictionary |
+|-----------|------|-----------|------------------|---------------------|
+| **JsonElement → TOON** | Small (~100 B) | 14.92 μs | 1.72 KB | 4.96x |
+| | Medium (~1 KB) | 37.06 μs | 7.72 KB | 12.25x |
+| | Large (~10 KB) | 608.36 μs | 289.07 KB | 203.94x |
+| **JSON String → TOON** | Small | 11.91 μs | 2.05 KB | 4.25x |
+| | Medium | 37.11 μs | 8.75 KB | 11.88x |
+| | Large | 782.60 μs | 309.54 KB | 254.25x |
+| **Dictionary (Baseline)** | Small | 3.15 μs | 1.00 KB | 1.00x |
+| | Medium | 9.94 μs | 5.38 KB | 3.31x |
+| | Large | 311.06 μs | 184.91 KB | 95.48x |
+
+#### POCO Object Serialization (C# Class → TOON)
+
+| Operation | Size | Mean Time | Allocated Memory | Ratio vs Dictionary |
+|-----------|------|-----------|------------------|---------------------|
+| **POCO → TOON** | Small (4 props) | 9.18 μs | 1.70 KB | 2.27x |
+| | Medium (~10 props) | 25.93 μs | 7.08 KB | 6.69x |
+| | Large (100 objects) | 580.61 μs | 255.28 KB | 149.90x |
+| **Anonymous Type → TOON** | Small | 13.15 μs | 1.80 KB | 3.46x |
+| | Medium | 15.82 μs | 3.62 KB | 4.37x |
+| **Dictionary (Baseline)** | Small | 3.90 μs | 1.01 KB | 1.00x |
+| | Medium | 10.70 μs | 5.38 KB | 2.88x |
+| | Large | 304.44 μs | 183.63 KB | 75.13x |
+
+**JsonElement & POCO Performance Notes:**
+- **Direct JSON support**: No need to manually convert JSON strings to dictionaries
+- **POCO serialization via reflection**: Serialize any C# class directly to TOON
+- **Anonymous types support**: Works with `new { ... }` syntax
+- **2-5x overhead vs pre-built dictionaries**: Acceptable for most use cases
+- **Format validation**: Automatically detects and rejects unsupported formats (XML, HTML, CSV)
 
 ### Running Benchmarks
 

@@ -121,6 +121,160 @@ public class TabularSuggestion
         return Encoding.UTF8.GetByteCount(toon);
     }
 
+    // ============================================
+    // JSON Conversion Methods with Format Validation
+    // ============================================
+
+    /// <summary>
+    /// Convert a JSON string to TOON format with format validation.
+    /// Throws UnsupportedFormatException if the input is not valid JSON (e.g., XML).
+    /// </summary>
+    /// <param name="jsonSource">The JSON string to convert.</param>
+    /// <param name="indent">Number of spaces for indentation (default: 2).</param>
+    /// <param name="mode">Serialization mode: "auto", "compact", or "readable" (default: "auto").</param>
+    /// <returns>The TOON formatted string.</returns>
+    /// <exception cref="UnsupportedFormatException">Thrown when input is not valid JSON.</exception>
+    public static string JsonToToon(string jsonSource, int indent = 2, string mode = "auto")
+    {
+        if (string.IsNullOrWhiteSpace(jsonSource))
+        {
+            throw new ArgumentException("Input cannot be null or empty", nameof(jsonSource));
+        }
+
+        // Detect unsupported formats before attempting to parse
+        var detectedFormat = DetectFormat(jsonSource);
+        if (detectedFormat != "JSON" && detectedFormat != "Unknown")
+        {
+            throw new UnsupportedFormatException(detectedFormat);
+        }
+
+        try
+        {
+            var obj = JsonSerializer.Deserialize<object>(jsonSource);
+            return ToToon(obj, indent, mode);
+        }
+        catch (JsonException ex)
+        {
+            // If JSON parsing fails and we couldn't detect format earlier, check again
+            var format = DetectFormat(jsonSource);
+            if (format != "JSON" && format != "Unknown")
+            {
+                throw new UnsupportedFormatException(format);
+            }
+            throw new UnsupportedFormatException("Invalid JSON", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Parse a JSON string into a .NET object with format validation.
+    /// Throws UnsupportedFormatException if the input is not valid JSON.
+    /// </summary>
+    /// <param name="jsonSource">The JSON string to parse.</param>
+    /// <returns>The parsed .NET object.</returns>
+    /// <exception cref="UnsupportedFormatException">Thrown when input is not valid JSON.</exception>
+    public static object? FromJson(string jsonSource)
+    {
+        if (string.IsNullOrWhiteSpace(jsonSource))
+        {
+            throw new ArgumentException("Input cannot be null or empty", nameof(jsonSource));
+        }
+
+        var detectedFormat = DetectFormat(jsonSource);
+        if (detectedFormat != "JSON" && detectedFormat != "Unknown")
+        {
+            throw new UnsupportedFormatException(detectedFormat);
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<object>(jsonSource);
+        }
+        catch (JsonException ex)
+        {
+            var format = DetectFormat(jsonSource);
+            if (format != "JSON" && format != "Unknown")
+            {
+                throw new UnsupportedFormatException(format);
+            }
+            throw new UnsupportedFormatException("Invalid JSON", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Detect the format of the input string.
+    /// Returns "XML", "HTML", "JSON", "YAML", "TOML", "CSV", or "Unknown".
+    /// </summary>
+    public static string DetectFormat(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            return "Unknown";
+
+        var trimmed = source.TrimStart();
+
+        // HTML detection (must be before XML since HTML is a subset)
+        if (trimmed.StartsWith("<!DOCTYPE html", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith("<html", StringComparison.OrdinalIgnoreCase))
+        {
+            return "HTML";
+        }
+
+        // XML detection: starts with < and contains XML-like patterns
+        if (trimmed.StartsWith('<'))
+        {
+            // Check for XML declaration or common XML patterns
+            if (trimmed.StartsWith("<?xml", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("<!DOCTYPE", StringComparison.OrdinalIgnoreCase) ||
+                System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^<[a-zA-Z_][\w\-.:]*(\s|>|/>)"))
+            {
+                return "XML";
+            }
+        }
+
+        // JSON detection: starts with { or [
+        if (trimmed.StartsWith('{') || trimmed.StartsWith('['))
+        {
+            return "JSON";
+        }
+
+        // CSV detection: contains comma-separated values on first line with no special chars
+        var firstLine = trimmed.Split('\n')[0].Trim();
+        if (firstLine.Contains(',') && !firstLine.Contains(':') && !firstLine.Contains('{') && !firstLine.Contains('['))
+        {
+            var parts = firstLine.Split(',');
+            if (parts.Length >= 2 && parts.All(p => !string.IsNullOrWhiteSpace(p)))
+            {
+                return "CSV";
+            }
+        }
+
+        // INI detection: [section] pattern
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^\[[^\]]+\]\s*$", System.Text.RegularExpressions.RegexOptions.Multiline))
+        {
+            // Could be TOML or INI - check for TOML-specific patterns
+            if (trimmed.Contains("[[") || System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^\w+\s*=\s*\[", System.Text.RegularExpressions.RegexOptions.Multiline))
+            {
+                return "TOML";
+            }
+        }
+
+        return "Unknown";
+    }
+
+    /// <summary>
+    /// Check if a format is supported by ToonSharp.
+    /// </summary>
+    public static bool IsFormatSupported(string format)
+    {
+        return format.ToUpperInvariant() switch
+        {
+            "JSON" => true,
+            "YAML" => true,
+            "TOML" => true,
+            "TOON" => true,
+            _ => false
+        };
+    }
+
     /// <summary>
     /// Convert a YAML string to TOON format.
     /// </summary>
