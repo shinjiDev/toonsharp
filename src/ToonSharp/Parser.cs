@@ -308,6 +308,7 @@ public class ToonLexer
 public class ToonParser
 {
     private readonly string mode;
+    private readonly bool expandPathsSafe;
     private List<Line> lines = new();
     private int currentIndex = 0;
     private int? cachedIndentSize;
@@ -315,8 +316,14 @@ public class ToonParser
     private const string DefaultTableDelimiter = ",";
 
     public ToonParser(string mode = "strict")
+        : this(new ToonDecodeOptions { Strict = string.Equals(mode, "strict", StringComparison.OrdinalIgnoreCase) })
     {
-        this.mode = mode;
+    }
+
+    public ToonParser(ToonDecodeOptions options)
+    {
+        mode = options.ParserMode;
+        expandPathsSafe = options.ExpandPathsSafe;
     }
 
     public object? Parse(string source)
@@ -449,7 +456,7 @@ public class ToonParser
             var key = keyToken.Clean;
             InlineArrayInfo? inlineArray = !keyToken.WasQuoted ? TryParseInlineArrayKey(key) : null;
             var targetKey = inlineArray?.BaseKey ?? key;
-            var allowPathExpansion = !keyToken.WasQuoted;
+            var allowPathExpansion = expandPathsSafe && !keyToken.WasQuoted;
             var treatAsInlineArray = inlineArray.HasValue && (!string.IsNullOrWhiteSpace(valueStr) || inlineArray.Value.Count == 0);
 
             currentIndex++;
@@ -572,7 +579,7 @@ public class ToonParser
         var key = keyToken.Clean;
         InlineArrayInfo? inlineArray = !keyToken.WasQuoted ? TryParseInlineArrayKey(key) : null;
         var targetKey = inlineArray?.BaseKey ?? key;
-        var allowPathExpansion = !keyToken.WasQuoted;
+        var allowPathExpansion = expandPathsSafe && !keyToken.WasQuoted;
         var treatAsInlineArray = inlineArray.HasValue &&
                                  (!string.IsNullOrWhiteSpace(valueStr) || inlineArray.Value.Count == 0);
 
@@ -640,7 +647,7 @@ public class ToonParser
             var key = keyToken.Clean;
             InlineArrayInfo? inlineArray = !keyToken.WasQuoted ? TryParseInlineArrayKey(key) : null;
             var targetKey = inlineArray?.BaseKey ?? key;
-            var allowPathExpansion = !keyToken.WasQuoted;
+            var allowPathExpansion = expandPathsSafe && !keyToken.WasQuoted;
             var treatAsInlineArray = inlineArray.HasValue &&
                                      (!string.IsNullOrWhiteSpace(valueStr) || inlineArray.Value.Count == 0);
 
@@ -749,7 +756,7 @@ public class ToonParser
             return null;
         }
 
-        return new TableHeaderInfo(cleanKey, !wasQuoted, count, fields, delimiter);
+        return new TableHeaderInfo(cleanKey, expandPathsSafe && !wasQuoted, count, fields, delimiter);
     }
 
     private (List<Dictionary<string, object?>> rows, int nextIndex) ParseTableFromHeader(
@@ -1376,6 +1383,12 @@ public class ToonParser
             {
                 current = nested;
             }
+            else if (string.Equals(mode, "permissive", StringComparison.OrdinalIgnoreCase))
+            {
+                var replacement = new Dictionary<string, object?>();
+                current[segment] = replacement;
+                current = replacement;
+            }
             else
             {
                 throw new ToonSyntaxError($"Path '{key}' conflicts with existing value at '{segment}'", lineNo);
@@ -1388,8 +1401,15 @@ public class ToonParser
             existingFinal is Dictionary<string, object?> &&
             value is not Dictionary<string, object?>)
         {
+            if (string.Equals(mode, "permissive", StringComparison.OrdinalIgnoreCase))
+            {
+                current[finalSegment] = value;
+                return;
+            }
+
             throw new ToonSyntaxError($"Path '{key}' conflicts with existing nested object", lineNo);
         }
+
         current[finalSegment] = value;
     }
 

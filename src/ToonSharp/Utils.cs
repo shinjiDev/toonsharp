@@ -249,7 +249,10 @@ public static class Utils
     /// Detect tabular schema for a sequence of uniform objects.
     /// Optimized sequential version - avoids parallel overhead for better performance on medium datasets.
     /// </summary>
-    public static TabularSchema? TabularSchema(IEnumerable<Dictionary<string, object?>> rows, int minKeyCount = 2)
+    public static TabularSchema? TabularSchema(
+        IEnumerable<Dictionary<string, object?>> rows,
+        int minKeyCount = 2,
+        string? delimiterOverride = null)
     {
         var rowList = rows as List<Dictionary<string, object?>> ?? rows.ToList();
         
@@ -334,7 +337,7 @@ public static class Utils
         if (savings >= 0)
         {
             var keys = firstKeys.ToList();
-            var delimiter = ChooseTableDelimiter(keys, rowList, needsNonComma, needsNonPipe, stringFlagsComputed: true);
+            var delimiter = delimiterOverride ?? ChooseTableDelimiter(keys, rowList, needsNonComma, needsNonPipe, stringFlagsComputed: true);
             return new TabularSchema(keys, savings, delimiter);
         }
 
