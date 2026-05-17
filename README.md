@@ -1,14 +1,17 @@
 # 🔄 ToonSharp (C#)
 
 [![NuGet Version](https://img.shields.io/nuget/v/ToonLib.svg?label=NuGet&color=blue)](https://www.nuget.org/packages/ToonLib)
+[![Version](https://img.shields.io/badge/ToonLib-2.0.0-blue.svg)](https://www.nuget.org/packages/ToonLib)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ToonLib.svg?label=Downloads&color=green)](https://www.nuget.org/packages/ToonLib)
 [![.NET Version](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
+[![Tests](https://img.shields.io/badge/tests-528%20passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
 
-A production-grade C# library and CLI that converts data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v3.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
+**ToonLib 2.0.0** is a major release of the production-grade C# library and CLI for JSON, YAML, TOML, and TOON (Token-Oriented Object Notation). It implements **[TOON SPEC v3.0](https://github.com/toon-format/spec/blob/main/SPEC.md)** with breaking encode/decode changes versus **1.4.x**.
 
-**✅ TOON SPEC v3.0 (default)** — Canonical §10 list-item encoding, array length headers (`key[N]:`), official encode/decode fixtures, and span-optimized I/O. For v2-focused notes and historical benchmarks, see **[README.v2.md](README.v2.md)**.
+> **Versioning:** **2.0.0** = NuGet package / library. **SPEC v3.0** = format rules this release targets. The published **SPEC v2** example corpus is documented in **[README.v2.md](README.v2.md)** (not the same as library 1.4.x).
+
+**✅ TOON SPEC v3.0** — Canonical §10 list-item encoding, array length headers (`key[N]:`), **358** official encode/decode fixtures, span-optimized I/O, and **528** automated tests.
 
 ## ✅ TOON SPEC v3.0 compliance
 
@@ -86,20 +89,32 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML c
 ### Via NuGet Package Manager (Recommended)
 
 ```bash
-dotnet add package ToonLib
+dotnet add package ToonLib --version 2.0.0
 ```
 
 Or using Package Manager Console in Visual Studio:
 ```powershell
-Install-Package ToonLib
+Install-Package ToonLib -Version 2.0.0
 ```
 
 Or using NuGet CLI:
 ```bash
-nuget install ToonLib
+nuget install ToonLib -Version 2.0.0
 ```
 
-**Package:** [ToonLib on NuGet.org](https://www.nuget.org/packages/ToonLib)
+**Package:** [ToonLib 2.0.0 on NuGet.org](https://www.nuget.org/packages/ToonLib)
+
+### Upgrading from ToonLib 1.4.x
+
+**2.0.0 is a breaking release.** Expect different TOON output for the same JSON input:
+
+- List items with a tabular first field use **§10** form (`- key[N]{fields}:` on the hyphen line).
+- Array fields emit **`key[N]:`** length headers.
+- Tabular rows keep **comma** delimiters and **quote** cells that contain commas (no automatic `|` switch).
+- More strings stay **unquoted** when safe (e.g. spaces); ambiguous tokens and structural characters are quoted per spec.
+- Keys with hyphens (e.g. `build-system`) are quoted.
+
+Pin `1.4.x` if you need byte-stable output from the pre-v3 line; adopt `2.0.0` for spec conformance and performance.
 
 ### From Source
 
@@ -420,7 +435,7 @@ Benchmarks: **.NET 9**, **BenchmarkDotNet** short job (`--warmupCount 1 --iterat
 - **Large array deserialize** improved via unquoted comma-split fast path (no `"` in payload).
 - **Large array serialize** emits one inline `items[1000]: …` line — fewer tokens, single buffer growth.
 - **Large table** benefits from stricter tabular detection and comma-row writer.
-- Historical v2.0.0-era numbers: [README.v2.md](README.v2.md).
+- Early 2.0.0 development benchmarks (pre fast-path): [README.v2.md](README.v2.md).
 
 ### YAML Conversion Performance
 
@@ -549,8 +564,8 @@ Reports are written to `BenchmarkDotNet.Artifacts/results/` (Markdown, HTML, CSV
 
 | Document | Description |
 |----------|-------------|
-| **[README.md](README.md)** (this file) | **TOON SPEC v3.0** — default |
-| **[README.v2.md](README.v2.md)** | v2-oriented notes and v2.0.0-era benchmarks |
+| **[README.md](README.md)** (this file) | **ToonLib 2.0.0** + **TOON SPEC v3.0** — default |
+| **[README.v2.md](README.v2.md)** | **TOON SPEC v2** example corpus notes (not library 1.4.x) |
 | **`docs/spec_summary.md`** | Concise spec overview with ABNF notes |
 | **`docs/examples.md`** | JSON⇄TOON conversion examples |
 | **`docs/assumptions.md`** | Strict vs permissive behavior and documented edge cases |
@@ -604,31 +619,23 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## 📋 Release Notes
 
-### v3.0 (current) — TOON SPEC v3.0 + performance
+### ToonLib 2.0.0 (2026-05) — **current** · implements TOON SPEC v3.0
+
+Major release after **1.4.x**. Breaking changes to encoded TOON; decode aligned with the official spec test corpora.
 
 **Spec conformance:**
 - **358** official encode/decode fixtures (`tests/fixtures/spec/`) + **66** `examples/spec_v2/` cases — **528** total tests.
 - §10 list-item encoding/decoding; `key[N]:` headers; §11 comma + quoted tabular cells; §7.2/§7.3 quoting rules.
-- Parser fixes: strict blank lines, `- [N]:` vs bracket-only lines, JSON root scalars, `expandPaths` defaults.
+- Parser: strict blank lines, `- [N]:` vs bracket-only lines, JSON root scalars, `expandPaths` defaults.
 
-**Performance:**
-- `ToonWriter` / `AppendScalar` serialization path.
+**Performance (vs ToonLib 1.4.2 on reference benchmarks):**
+- `ToonWriter` / `AppendScalar` serialization buffer.
 - Unquoted **comma-split inline array** decode fast path.
-- Large array: **~−35%** deserialize, **~−37%** round-trip vs v1.4.2 (typical Release build).
+- Large array: **~−35%** deserialize, **~−37%** round-trip (typical Release build).
 
-**Docs:**
-- Default **README.md** = v3; legacy **README.v2.md** for v2 context.
-
-### v2.0.0 (2026-05-16) — TOON SPEC v3.0 encoding (see [README.v2.md](README.v2.md))
-
-**Breaking changes (encode):**
-- Conformant **§10** encoding: list-item objects with a tabular first field use `- key[N]{fields}:` on the hyphen line; rows at depth +2.
-- Array fields emit length headers: `key[N]:` (and inline primitive arrays where applicable).
-
-**Improvements:**
-- Stricter **tabular detection** (primitive-only values).
-- Parser: row-level indent for tabular blocks; §10 list-item decode.
-- Large table serialize/deserialize ~20–24% faster vs v1.4.2 on reference benchmarks.
+**Documentation:**
+- Default [README.md](README.md) for **library 2.0.0** + **SPEC v3.0**.
+- [README.v2.md](README.v2.md) for the **TOON SPEC v2** published example set.
 
 ### v1.4.2 (2024-12-05)
 - **Bugfix**: Fixed root-level POCO list serialization to use tabular format
@@ -673,7 +680,7 @@ If you find this project helpful, consider supporting my work:
 
 ## 🙏 Acknowledgments
 
-* Built following [TOON SPEC v3.0](https://github.com/toon-format/spec/blob/main/SPEC.md) (v2 notes: [README.v2.md](README.v2.md))
+* **ToonLib 2.0.0** built for [TOON SPEC v3.0](https://github.com/toon-format/spec/blob/main/SPEC.md) (SPEC v2 examples: [README.v2.md](README.v2.md))
 * Inspired by the need for efficient, token-optimized data serialization
 * C# implementation inspired by the original TOON reference tooling
 
