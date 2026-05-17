@@ -49,18 +49,18 @@ public class ToonSerializer
 
     public string Dumps(object? obj)
     {
-        var lines = new List<string>();
-        WriteValue(obj, 0, lines);
-        return string.Join("\n", lines).TrimEnd() + "\n";
+        var writer = new ToonWriter(4096);
+        WriteValue(obj, 0, writer);
+        return writer.ToString();
     }
 
-    private void WriteValue(object? obj, int level, List<string> lines)
+    private void WriteValue(object? obj, int level, ToonWriter writer)
     {
         string indent = GetIndent(level);
 
         if (obj == null)
         {
-            lines.Add(indent + "null");
+            writer.AddLine(indent + "null");
             return;
         }
 
@@ -69,7 +69,7 @@ public class ToonSerializer
         
         if (obj == null)
         {
-            lines.Add(indent + "null");
+            writer.AddLine(indent + "null");
             return;
         }
 
@@ -82,17 +82,17 @@ public class ToonSerializer
             var dict = (Dictionary<string, object?>)obj;
             if (dict.Count == 0)
             {
-                lines.Add(indent + "{}");
+                writer.AddLine(indent + "{}");
                 return;
             }
-            WriteObject(dict, level, lines);
+            WriteObject(dict, level, writer);
             return;
         }
 
         // String must be checked before IEnumerable (string implements IEnumerable)
         if (type == typeof(string))
         {
-            lines.Add(indent + FormatScalar(obj));
+            writer.AddLine(indent + FormatScalar(obj));
             return;
         }
 
@@ -102,15 +102,14 @@ public class ToonSerializer
             var list = (List<object?>)obj;
             if (list.Count == 0)
             {
-                lines.Add(indent + "[]");
+                writer.AddLine(indent + "[]");
                 return;
             }
-            // Try tabular format for root-level arrays of uniform dictionaries
-            if (TryWriteRootArrayAsTabular(list, level, lines))
+            if (level == 0 && TryWriteRootArrayAsTabular(list, level, writer))
             {
                 return;
             }
-            WriteArray(list, level, lines);
+            WriteArray(list, level, writer);
             return;
         }
 
@@ -126,50 +125,45 @@ public class ToonSerializer
             
             if (normalizedItems.Count == 0)
             {
-                lines.Add(indent + "[]");
+                writer.AddLine(indent + "[]");
                 return;
             }
             
-            // Try tabular format for root-level arrays of uniform dictionaries
-            if (TryWriteRootArrayAsTabular(normalizedItems, level, lines))
+            if (level == 0 && TryWriteRootArrayAsTabular(normalizedItems, level, writer))
             {
                 return;
             }
             
-            WriteArray(normalizedItems, level, lines);
+            WriteArray(normalizedItems, level, writer);
             return;
         }
 
         // Scalar by default
-        lines.Add(indent + FormatScalar(obj));
+        writer.AddLine(indent + FormatScalar(obj));
     }
 
-    private void WriteObject(Dictionary<string, object?> mapping, int level, List<string> lines)
+    private void WriteObject(Dictionary<string, object?> mapping, int level, ToonWriter writer)
     {
         foreach (var kvp in mapping)
         {
             var keyRepr = Utils.FormatKey(kvp.Key);
             var value = kvp.Value;
 
-            // Optimization: check exact type first (avoids unnecessary casting)
-            if (value != null && value.GetType() != typeof(string))
+            if (TryNormalizeList(value, out var listValue))
             {
-                // Check if it's List<object?> directly (most common case)
-                if (value is List<object?> list && list.Count > 0)
+                if (listValue.Count > 0 && TryWriteAsTabular(keyRepr, listValue, level, writer))
                 {
-                    if (TryWriteAsTabular(keyRepr, list, level, lines))
-                        continue;
+                    continue;
                 }
-                // Fallback for other IEnumerable
-                else if (value is System.Collections.IEnumerable valueEnumerable)
+
+                if (TryWriteInlineArrayField(writer, level, keyRepr, listValue))
                 {
-                    // Use ICollection to avoid enumerating twice
-                    if (valueEnumerable is System.Collections.ICollection collection && collection.Count > 0)
-                    {
-                        if (TryWriteAsTabularFromEnumerable(keyRepr, valueEnumerable, level, lines))
-                            continue;
-                    }
+                    continue;
                 }
+
+                writer.AddLine(string.Concat(GetIndent(level), keyRepr, "[", listValue.Count.ToString(), "]:"));
+                WriteArray(listValue, level + indent, writer);
+                continue;
             }
 
             // Cache the prefix (used multiple times)
@@ -178,35 +172,34 @@ public class ToonSerializer
             var inlineContainer = InlineContainerRepr(value);
             if (inlineContainer != null)
             {
-                lines.Add(string.Concat(prefix, " ", inlineContainer));
+                writer.AddLine(string.Concat(prefix, " ", inlineContainer));
                 continue;
             }
 
             // Optimization: check type only once
             var isContainer = value != null &&
                              (value.GetType() == typeof(Dictionary<string, object?>) ||
-                              value.GetType() == typeof(List<object?>) ||
                               (value is System.Collections.IEnumerable && value.GetType() != typeof(string)));
 
             if (isContainer)
             {
-                lines.Add(prefix);
-                WriteValue(value, level + indent, lines);
+                writer.AddLine(prefix);
+                WriteValue(value, level + indent, writer);
             }
             else if (IsInline(value))
             {
-                lines.Add(string.Concat(prefix, " ", FormatScalar(value)));
+                writer.AddLine(string.Concat(prefix, " ", FormatScalar(value)));
             }
             else
             {
-                lines.Add(prefix);
-                WriteValue(value, level + indent, lines);
+                writer.AddLine(prefix);
+                WriteValue(value, level + indent, writer);
             }
         }
     }
 
     // Try to write a root-level array as tabular format
-    private bool TryWriteRootArrayAsTabular(List<object?> items, int level, List<string> lines)
+    private bool TryWriteRootArrayAsTabular(List<object?> items, int level, ToonWriter writer)
     {
         // Early exit: check first element is a dictionary
         if (items[0] is not Dictionary<string, object?> firstDict)
@@ -234,7 +227,7 @@ public class ToonSerializer
                                   (mode == "readable" && schema.Savings > 10);
             if (shouldUseTabular)
             {
-                WriteRootTable(dictList, schema, level, lines);
+                WriteRootTable(dictList, schema, level, writer);
                 return true;
             }
         }
@@ -243,14 +236,30 @@ public class ToonSerializer
     }
 
     // Write a root-level tabular array (no key name)
-    private void WriteRootTable(List<Dictionary<string, object?>> rows, TabularSchema schema, int level, List<string> lines)
+    private void WriteRootTable(List<Dictionary<string, object?>> rows, TabularSchema schema, int level, ToonWriter writer)
     {
-        var fields = string.Join(",", schema.Keys);
-        var header = string.Concat(GetIndent(level), "[", rows.Count.ToString(), "]{", fields, "}:");
-        lines.Add(header);
+        if (schema.Delimiter == ",")
+        {
+            var fields = string.Join(",", schema.Keys);
+            writer.AddLine(string.Concat(GetIndent(level), "[", rows.Count.ToString(), "]{", fields, "}:"));
+            WriteCommaTableRows(rows, schema.Keys, level + indent, writer);
+            return;
+        }
 
-        var indentStr = GetIndent(level + indent);
-        var keysArray = schema.Keys.ToArray();
+        writer.AddLine(string.Concat(
+            GetIndent(level),
+            FormatTableHeaderBody(rows.Count, schema.Keys, schema.Delimiter)));
+        WriteTableRows(rows, schema.Keys, schema.Delimiter, level + indent, writer);
+    }
+
+    private void WriteCommaTableRows(
+        List<Dictionary<string, object?>> rows,
+        IReadOnlyList<string> keys,
+        int rowLevel,
+        ToonWriter writer)
+    {
+        var indentStr = GetIndent(rowLevel);
+        var keysArray = keys as string[] ?? keys.ToArray();
         var keysCount = keysArray.Length;
 
         if (rows.Count >= tableParallelThreshold)
@@ -263,33 +272,33 @@ public class ToonSerializer
                 sb.Append(indentStr);
                 for (int j = 0; j < keysCount; j++)
                 {
-                    if (j > 0) sb.Append(',');
-                    var value = row.GetValueOrDefault(keysArray[j]);
-                    sb.Append(FormatScalar(value));
+                    if (j > 0)
+                    {
+                        sb.Append(',');
+                    }
+
+                    row.TryGetValue(keysArray[j], out var value);
+                    Utils.AppendScalar(sb, value);
                 }
+
                 rowLines[i] = sb.ToString();
             });
-            lines.AddRange(rowLines);
+            writer.AddLines(rowLines);
         }
         else
         {
+            writer.EnsureCapacity(rows.Count * (indentStr.Length + keysCount * 8));
             foreach (var row in rows)
             {
-                var sb = new StringBuilder(indentStr.Length + keysCount * 10);
-                sb.Append(indentStr);
-                for (int j = 0; j < keysCount; j++)
-                {
-                    if (j > 0) sb.Append(',');
-                    var value = row.GetValueOrDefault(keysArray[j]);
-                    sb.Append(FormatScalar(value));
-                }
-                lines.Add(sb.ToString());
+                writer.NewLine();
+                writer.Append(indentStr);
+                AppendTableRowCells(writer.Buffer, row, keysArray, keysCount, ",");
             }
         }
     }
 
     // Helper method extracted to avoid code duplication
-    private bool TryWriteAsTabular(string keyRepr, List<object?> items, int level, List<string> lines)
+    private bool TryWriteAsTabular(string keyRepr, List<object?> items, int level, ToonWriter writer)
     {
         // Early exit: check first element
         if (items[0] is not Dictionary<string, object?> firstDict)
@@ -317,7 +326,7 @@ public class ToonSerializer
                                   (mode == "readable" && schema.Savings > 10);
             if (shouldUseTabular)
             {
-                WriteTableAsKey(keyRepr, dictList, schema, level, lines);
+                WriteTableAsKey(keyRepr, dictList, schema, level, writer);
                 return true;
             }
         }
@@ -325,13 +334,13 @@ public class ToonSerializer
         return false;
     }
 
-    private bool TryWriteAsTabularFromEnumerable(string keyRepr, System.Collections.IEnumerable valueEnumerable, int level, List<string> lines)
+    private bool TryWriteAsTabularFromEnumerable(string keyRepr, System.Collections.IEnumerable valueEnumerable, int level, ToonWriter writer)
     {
         var items = valueEnumerable.Cast<object?>().ToList();
-        return items.Count > 0 && TryWriteAsTabular(keyRepr, items, level, lines);
+        return items.Count > 0 && TryWriteAsTabular(keyRepr, items, level, writer);
     }
 
-    private void WriteArray(List<object?> seq, int level, List<string> lines)
+    private void WriteArray(List<object?> seq, int level, ToonWriter writer)
     {
         var prefix = string.Concat(GetIndent(level), "-");
 
@@ -357,7 +366,7 @@ public class ToonSerializer
                 // Avoid repeated concatenation in each iteration
                 itemLines[i] = string.Concat(prefixWithSpace, FormatScalar(seq[i]));
             });
-            lines.AddRange(itemLines);
+            writer.AddLines(itemLines);
         }
         else
         {
@@ -365,16 +374,13 @@ public class ToonSerializer
             if (allInline)
             {
                 var prefixWithSpace = string.Concat(prefix, " ");
-                // Known capacity: optimizes List internally
-                var capacity = lines.Capacity;
-                if (lines.Count + seq.Count > capacity)
-                {
-                    lines.Capacity = lines.Count + seq.Count;
-                }
+                writer.EnsureCapacity(seq.Count * (prefixWithSpace.Length + 12));
 
                 foreach (var item in seq)
                 {
-                    lines.Add(string.Concat(prefixWithSpace, FormatScalar(item)));
+                    writer.NewLine();
+                    writer.Append(prefixWithSpace);
+                    Utils.AppendScalar(writer.Buffer, item);
                 }
             }
             else
@@ -384,76 +390,403 @@ public class ToonSerializer
                 {
                     if (IsInline(item))
                     {
-                        lines.Add(string.Concat(prefix, " ", FormatScalar(item)));
+                        writer.AddLine(string.Concat(prefix, " ", FormatScalar(item)));
+                    }
+                    else if (item is Dictionary<string, object?> dict)
+                    {
+                        WriteListItemObject(dict, level, prefix, writer);
                     }
                     else
                     {
-                        lines.Add(prefix);
-                        WriteValue(item, level + indent, lines);
+                        writer.AddLine(prefix);
+                        WriteValue(item, level + indent, writer);
                     }
                 }
             }
         }
     }
 
-    private void WriteTableAsKey(string key, List<Dictionary<string, object?>> rows, TabularSchema schema, int level, List<string> lines)
+    /// <summary>
+    /// TOON v3 §10: encode an object as a list item (- line).
+    /// </summary>
+    private void WriteListItemObject(Dictionary<string, object?> dict, int level, string hyphenPrefix, ToonWriter writer)
     {
-        // Optimization: build header efficiently
+        if (dict.Count == 0)
+        {
+            writer.AddLine(hyphenPrefix);
+            return;
+        }
+
+        using var enumerator = dict.GetEnumerator();
+        enumerator.MoveNext();
+        var first = enumerator.Current;
+        var firstKeyRepr = Utils.FormatKey(first.Key);
+
+        if (TryGetTabularListForListItem(first.Value, out var tabularRows, out var tabularSchema))
+        {
+            writer.AddLine(string.Concat(
+                hyphenPrefix,
+                " ",
+                firstKeyRepr,
+                FormatTableHeaderBody(tabularRows.Count, tabularSchema.Keys, tabularSchema.Delimiter)));
+            WriteTableRows(tabularRows, tabularSchema.Keys, tabularSchema.Delimiter, level + indent * 2, writer);
+
+            var siblingLevel = level + indent;
+            while (enumerator.MoveNext())
+            {
+                WriteObjectField(enumerator.Current.Key, enumerator.Current.Value, siblingLevel, writer);
+            }
+            return;
+        }
+
+        WriteListItemFirstFieldOnHyphen(firstKeyRepr, first.Value, hyphenPrefix, level, writer);
+        var fieldLevel = level + indent;
+        while (enumerator.MoveNext())
+        {
+            WriteObjectField(enumerator.Current.Key, enumerator.Current.Value, fieldLevel, writer);
+        }
+    }
+
+    private void WriteListItemFirstFieldOnHyphen(string keyRepr, object? value, string hyphenPrefix, int level, ToonWriter writer)
+    {
+        var inlineContainer = InlineContainerRepr(value);
+        if (inlineContainer != null)
+        {
+            writer.AddLine(string.Concat(hyphenPrefix, " ", keyRepr, ": ", inlineContainer));
+            return;
+        }
+
+        if (value is List<object?> list && list.Count > 0)
+        {
+            if (TryWriteInlineArrayOnHyphen(writer, keyRepr, list, hyphenPrefix))
+            {
+                return;
+            }
+        }
+
+        if (IsInline(value))
+        {
+            writer.AddLine(string.Concat(hyphenPrefix, " ", keyRepr, ": ", FormatScalar(value)));
+            return;
+        }
+
+        writer.AddLine(string.Concat(hyphenPrefix, " ", keyRepr, ":"));
+        WriteValue(value, level + indent * 2, writer);
+    }
+
+    private bool TryWriteInlineArrayField(ToonWriter writer, int level, string keyRepr, List<object?> list)
+    {
+        if (list.Count == 0)
+        {
+            writer.AddLine(string.Concat(GetIndent(level), keyRepr, "[0]:"));
+            return true;
+        }
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (!IsInline(list[i]))
+            {
+                return false;
+            }
+        }
+
+        int capacity = GetIndent(level).Length + keyRepr.Length + 16;
+        for (int i = 0; i < list.Count; i++)
+        {
+            capacity += Utils.EstimateScalarEncodedLength(list[i]) + 1;
+        }
+
+        writer.EnsureCapacity(capacity);
+        writer.NewLine();
+        writer.Append(GetIndent(level));
+        writer.Append(keyRepr);
+        writer.Append('[');
+        writer.Append(list.Count.ToString());
+        writer.Append("]: ");
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (i > 0)
+            {
+                writer.Append(',');
+            }
+
+            Utils.AppendScalar(writer.Buffer, list[i]);
+        }
+
+        return true;
+    }
+
+    private bool TryWriteInlineArrayOnHyphen(
+        ToonWriter writer,
+        string keyRepr,
+        List<object?> list,
+        string hyphenPrefix)
+    {
+        if (list.Count == 0)
+        {
+            writer.AddLine(string.Concat(hyphenPrefix, " ", keyRepr, "[0]:"));
+            return true;
+        }
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (!IsInline(list[i]))
+            {
+                return false;
+            }
+        }
+
+        writer.EnsureCapacity(hyphenPrefix.Length + keyRepr.Length + list.Count * 12);
+        writer.NewLine();
+        writer.Append(hyphenPrefix);
+        writer.Append(' ');
+        writer.Append(keyRepr);
+        writer.Append('[');
+        writer.Append(list.Count.ToString());
+        writer.Append("]: ");
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (i > 0)
+            {
+                writer.Append(',');
+            }
+
+            Utils.AppendScalar(writer.Buffer, list[i]);
+        }
+
+        return true;
+    }
+
+    private bool TryGetTabularListForListItem(object? value, out List<Dictionary<string, object?>> rows, out TabularSchema schema)
+    {
+        rows = null!;
+        schema = null!;
+
+        if (value is not List<object?> list || list.Count == 0 || list[0] is not Dictionary<string, object?> firstDict)
+        {
+            return false;
+        }
+
+        for (int i = 1; i < list.Count; i++)
+        {
+            if (list[i] is not Dictionary<string, object?>)
+            {
+                return false;
+            }
+        }
+
+        rows = new List<Dictionary<string, object?>>(list.Count);
+        for (int i = 0; i < list.Count; i++)
+        {
+            rows.Add((Dictionary<string, object?>)list[i]!);
+        }
+
+        var detected = Utils.TabularSchema(rows, minKeyCount: 1);
+        if (detected == null)
+        {
+            return false;
+        }
+
+        if (mode != "compact" && mode != "auto" && !(mode == "readable" && detected.Savings > 10))
+        {
+            return false;
+        }
+
+        schema = detected;
+        return true;
+    }
+
+    private void WriteObjectField(string key, object? value, int level, ToonWriter writer)
+    {
+        var keyRepr = Utils.FormatKey(key);
+
+        if (TryNormalizeList(value, out var listValue))
+        {
+            if (listValue.Count > 0 && TryWriteAsTabular(keyRepr, listValue, level, writer))
+            {
+                return;
+            }
+
+            if (TryWriteInlineArrayField(writer, level, keyRepr, listValue))
+            {
+                return;
+            }
+
+            if (listValue.Count > 0)
+            {
+                writer.AddLine(string.Concat(GetIndent(level), keyRepr, "[", listValue.Count.ToString(), "]:"));
+                WriteArray(listValue, level + indent, writer);
+                return;
+            }
+        }
+
+        if (value != null && value.GetType() != typeof(string))
+        {
+            if (value is System.Collections.IEnumerable valueEnumerable &&
+                valueEnumerable is System.Collections.ICollection collection &&
+                collection.Count > 0 &&
+                TryWriteAsTabularFromEnumerable(keyRepr, valueEnumerable, level, writer))
+            {
+                return;
+            }
+        }
+
+        var prefix = string.Concat(GetIndent(level), keyRepr, ":");
+        var inlineContainer = InlineContainerRepr(value);
+        if (inlineContainer != null)
+        {
+            writer.AddLine(string.Concat(prefix, " ", inlineContainer));
+            return;
+        }
+
+        var isContainer = value != null &&
+                         (value.GetType() == typeof(Dictionary<string, object?>) ||
+                          value.GetType() == typeof(List<object?>) ||
+                          (value is System.Collections.IEnumerable && value.GetType() != typeof(string)));
+
+        if (isContainer)
+        {
+            writer.AddLine(prefix);
+            WriteValue(value, level + indent, writer);
+        }
+        else if (IsInline(value))
+        {
+            writer.AddLine(string.Concat(prefix, " ", FormatScalar(value)));
+        }
+        else
+        {
+            writer.AddLine(prefix);
+            WriteValue(value, level + indent, writer);
+        }
+    }
+
+    private void WriteTableAsKey(string key, List<Dictionary<string, object?>> rows, TabularSchema schema, int level, ToonWriter writer)
+    {
+        if (schema.Delimiter == ",")
+        {
+            WriteCommaTableAsKey(key, rows, schema, level, writer);
+            return;
+        }
+
+        writer.AddLine(string.Concat(
+            GetIndent(level),
+            key,
+            FormatTableHeaderBody(rows.Count, schema.Keys, schema.Delimiter)));
+        WriteTableRows(rows, schema.Keys, schema.Delimiter, level + indent, writer);
+    }
+
+    private void WriteCommaTableAsKey(string key, List<Dictionary<string, object?>> rows, TabularSchema schema, int level, ToonWriter writer)
+    {
         var fields = string.Join(",", schema.Keys);
         var header = string.Concat(GetIndent(level), key, "[", rows.Count.ToString(), "]{", fields, "}:");
-        lines.Add(header);
+        writer.AddLine(header);
+        WriteCommaTableRows(rows, schema.Keys, level + indent, writer);
+    }
 
-        var indentStr = GetIndent(level + indent);
+    private static string FormatTableHeaderBody(int rowCount, IReadOnlyList<string> keys, string delimiter)
+    {
+        var bracketSuffix = delimiter == "," ? "" : delimiter;
+        var sb = new StringBuilder(32 + keys.Count * 8);
+        sb.Append('[');
+        sb.Append(rowCount);
+        sb.Append(bracketSuffix);
+        sb.Append("]{");
+        for (int i = 0; i < keys.Count; i++)
+        {
+            if (i > 0)
+            {
+                sb.Append(delimiter);
+            }
+
+            sb.Append(keys[i]);
+        }
+
+        sb.Append("}:");
+        return sb.ToString();
+    }
+
+    private void WriteTableRows(
+        List<Dictionary<string, object?>> rows,
+        IReadOnlyList<string> keys,
+        string delimiter,
+        int rowLevel,
+        ToonWriter writer)
+    {
+        var indentStr = GetIndent(rowLevel);
+        var keysArray = keys as string[] ?? keys.ToArray();
+        var keysCount = keysArray.Length;
 
         if (rows.Count >= tableParallelThreshold)
         {
             var rowLines = new string[rows.Count];
-            var keysArray = schema.Keys.ToArray(); // Avoid enumerating multiple times
-            var keysCount = keysArray.Length;
 
             Parallel.For(0, rows.Count, i =>
             {
-                var row = rows[i];
-                // StringBuilder is more efficient for multiple concatenations
-                var sb = new StringBuilder(indentStr.Length + keysCount * 10);
-                sb.Append(indentStr);
-                for (int j = 0; j < keysCount; j++)
-                {
-                    if (j > 0) sb.Append(',');
-                    var value = row.GetValueOrDefault(keysArray[j]);
-                    sb.Append(FormatScalar(value));
-                }
-                rowLines[i] = sb.ToString();
+                rowLines[i] = FormatTableRow(indentStr, rows[i], keysArray, keysCount, delimiter);
             });
-            lines.AddRange(rowLines);
+            writer.AddLines(rowLines);
         }
         else
         {
-            // Sequential optimized with StringBuilder
-            var keysArray = schema.Keys.ToArray();
-            var keysCount = keysArray.Length;
-
-            // Pre-allocate capacity
-            if (lines.Capacity < lines.Count + rows.Count)
-            {
-                lines.Capacity = lines.Count + rows.Count;
-            }
-
-            // Reuse StringBuilder to reduce allocations
-            var sb = new StringBuilder(indentStr.Length + keysCount * 10);
+            writer.EnsureCapacity(rows.Count * (indentStr.Length + keysCount * 12));
             foreach (var row in rows)
             {
-                sb.Clear();
-                sb.Append(indentStr);
-                for (int j = 0; j < keysCount; j++)
-                {
-                    if (j > 0) sb.Append(',');
-                    var value = row.GetValueOrDefault(keysArray[j]);
-                    sb.Append(FormatScalar(value));
-                }
-                lines.Add(sb.ToString());
+                writer.NewLine();
+                writer.Append(indentStr);
+                AppendTableRowCells(writer.Buffer, row, keysArray, keysCount, delimiter);
             }
         }
+    }
+
+    private string FormatTableRow(string indentStr, Dictionary<string, object?> row, string[] keysArray, int keysCount, string delimiter)
+    {
+        var sb = new StringBuilder(indentStr.Length + keysCount * 12);
+        sb.Append(indentStr);
+        AppendTableRowCells(sb, row, keysArray, keysCount, delimiter);
+        return sb.ToString();
+    }
+
+    private static void AppendTableRowCells(
+        StringBuilder sb,
+        Dictionary<string, object?> row,
+        string[] keysArray,
+        int keysCount,
+        string delimiter)
+    {
+        for (int j = 0; j < keysCount; j++)
+        {
+            if (j > 0)
+            {
+                sb.Append(delimiter);
+            }
+
+            row.TryGetValue(keysArray[j], out var value);
+            Utils.AppendTableCell(sb, value, delimiter);
+        }
+    }
+
+    private static bool TryNormalizeList(object? value, out List<object?> list)
+    {
+        if (value is List<object?> exactList)
+        {
+            list = exactList;
+            return true;
+        }
+
+        if (value is System.Collections.IList rawList && value is not string)
+        {
+            list = new List<object?>(rawList.Count);
+            foreach (var item in rawList)
+            {
+                list.Add(item);
+            }
+            return true;
+        }
+
+        list = null!;
+        return false;
     }
 
     private bool IsInline(object? value)

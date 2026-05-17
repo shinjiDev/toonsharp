@@ -26,6 +26,39 @@ public class SerializerTests
     }
 
     [Fact]
+    public void Serialize_large_primitive_array_stays_inline()
+    {
+        var items = new List<object?>();
+        for (int i = 0; i < 100; i++)
+        {
+            items.Add($"item{i}");
+        }
+
+        var data = new Dictionary<string, object?> { ["items"] = items };
+        var result = new ToonSerializer().Dumps(data);
+
+        Assert.Contains("items[100]:", result);
+        Assert.Contains("item0,item1", result);
+        Assert.DoesNotContain("- item0", result);
+    }
+
+    [Fact]
+    public void Serialize_table_with_commas_uses_pipe_delimiter()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            ["rows"] = new List<Dictionary<string, object?>>
+            {
+                new() { ["id"] = "1", ["value"] = "a,b" },
+            },
+        };
+
+        var result = new ToonSerializer().Dumps(data);
+        Assert.Contains("rows[1|]{id|value}:", result);
+        Assert.Contains("1|a,b", result);
+    }
+
+    [Fact]
     public void SerializeTableArray()
     {
         var data = new Dictionary<string, object?>

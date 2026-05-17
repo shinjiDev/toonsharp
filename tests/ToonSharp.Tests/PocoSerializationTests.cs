@@ -130,13 +130,8 @@ public class PocoSerializationTests
         var toon = Api.ToToon(person);
         
         Assert.Contains("Name: Bob", toon);
-        Assert.Contains("Tags:", toon);
-        Assert.Contains("- developer", toon);
-        Assert.Contains("- blogger", toon);
-        Assert.Contains("Skills:", toon);
-        Assert.Contains("- C#", toon);
-        Assert.Contains("- Python", toon);
-        Assert.Contains("- JavaScript", toon);
+        Assert.Contains("Tags[2]: developer,blogger", toon);
+        Assert.Contains("Skills[3]: C#,Python,JavaScript", toon);
     }
 
     [Fact]
@@ -186,8 +181,8 @@ public class PocoSerializationTests
         Assert.Contains("Title: \"Amazing Product\"", toon);
         Assert.Contains("Price: 99.99", toon);
         Assert.Contains("InStock: true", toon);
-        Assert.Contains("Categories:", toon);
-        Assert.Contains("- Electronics", toon);
+        Assert.Contains("Categories[2]:", toon);
+        Assert.Contains("Electronics", toon);
         Assert.Contains("Metadata:", toon);
         Assert.Contains("manufacturer: TechCorp", toon);
     }
@@ -263,10 +258,7 @@ public class PocoSerializationTests
         
         var toon = Api.ToToon(anon);
         
-        Assert.Contains("Items:", toon);
-        Assert.Contains("- a", toon);
-        Assert.Contains("- b", toon);
-        Assert.Contains("- c", toon);
+        Assert.Contains("Items[3]: a,b,c", toon);
     }
 
     [Fact]
@@ -332,8 +324,8 @@ public class PocoSerializationTests
         var toon = Api.ToToon(person);
         
         Assert.Contains("Name: Empty", toon);
-        Assert.Contains("Tags: []", toon);
-        Assert.Contains("Skills: []", toon);
+        Assert.Contains("Tags[0]:", toon);
+        Assert.Contains("Skills[0]:", toon);
     }
 
     #endregion

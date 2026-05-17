@@ -6,9 +6,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
 
-A production-grade C# library and CLI that converts data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
+A production-grade C# library and CLI that converts data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v3.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
 
-**✅ Full TOON SPEC v2.0 Compliance** - This library implements all examples from the [official TOON specification repository](https://github.com/toon-format/spec/tree/main/examples), ensuring complete compatibility with the standard.
+**✅ TOON SPEC v3.0** — Canonical §10 list-item encoding (tabular arrays on the hyphen line), array length headers (`key[N]:`), and conformance tests aligned with the [official specification](https://github.com/toon-format/spec).
 
 ## ✨ Features
 
@@ -27,7 +27,7 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML c
 
 * **Recursive descent parser** with indentation tracking
 * **Comment support** - inline (`#`, `//`) and block (`/* */`) comments
-* **ABNF-backed grammar** - fully compliant with TOON SPEC v2.0
+* **ABNF-backed grammar** - fully compliant with TOON SPEC v3.0
 * **Error reporting** with line and column numbers
 
 ### 🚀 3. Automatic Tabular Detection
@@ -39,11 +39,12 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML c
 
 ### ⚡ 4. Performance Optimizations
 
+* **TOON SPEC v3.0** with §10 list-item encoding — tabular-in-list round-trip ~26 μs (see benchmarks)
+* **~24% faster** large-table serialization vs v1.4.2 (stricter tabular eligibility)
+* **~23% faster** large-table deserialization (row-indent parsing)
 * **Direct JSON string support** via `JsonElement` serialization (v1.4.0) 🚀
 * **POCO object serialization** via reflection (v1.4.0, improved in v1.4.1) 🚀
 * **60-85% faster** YAML serialization (v1.2.0)
-* **40-46% faster** for large table operations (v1.1.0)
-* **16-20% faster** for large array deserialization
 * **Parallel processing** for large tables (50+ rows) and arrays (200+ items)
 * **Span<T> optimizations** for zero-allocation string operations
 * **Static instance reuse** for YAML serializers/deserializers
@@ -353,34 +354,42 @@ ToonSharp is optimized for high performance using **parallel processing** and **
 - Optimized `IterLines` with Span-based line processing
 - Optimized `ParseValue` with simplified comparisons and caching
 
-The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet (v1.1.0):
+The following benchmarks were executed on **.NET 9.0.14** with **BenchmarkDotNet 0.13.12** (short job, 5 iterations, 1 warmup). Re-run locally with the commands below.
 
-### Performance Results
+### Performance Results (v2.0.0 — TOON SPEC v3.0)
 
-| Operation | Size | Mean Time | Std Deviation | Allocated Memory |
-|-----------|------|-----------|--------------|------------------|
-| **Serialization** (JSON → TOON) | Small (~100 B) | 9.043 μs | ±0.43 μs | 1,010 B |
-| | Medium (~1 KB) | 29.068 μs | ±2.00 μs | 3,442 B |
-| | Large (~10 KB) | 325.625 μs | ±23.10 μs | 43,042 B |
-| | Large Table (200 rows) | 606.985 μs | ±126.06 μs | 318,352 B |
-| | Large Array (1000 items) | 529.001 μs | ±21.82 μs | 737,500 B |
-| **Deserialization** (TOON → JSON) | Small | 12.043 μs | ±1.11 μs | 1,899 B |
-| | Medium | 44.646 μs | ±3.43 μs | 10,011 B |
-| | Large | 400.055 μs | ±8.17 μs | 70,515 B |
-| | Large Table (200 rows) | 611.939 μs | ±52.06 μs | 476,681 B |
-| | Large Array (1000 items) | 438.117 μs | ±12.35 μs | 350,435 B |
-| **Round-Trip** (JSON → TOON → JSON) | Small | 25.491 μs | ±1.95 μs | 2,895 B |
-| | Medium | 72.087 μs | ±2.29 μs | 13,442 B |
-| | Large | 660.590 μs | ±441.61 μs | 113,546 B |
-| | Large Table (200 rows) | 799.313 μs | ±186.01 μs | 805,424 B |
-| | Large Array (1000 items) | 812.023 μs | ±16.82 μs | 931,439 B |
+| Operation | Size | Mean Time | Allocated | vs v1.4.2 |
+|-----------|------|-----------|-----------|-----------|
+| **Serialization** (JSON → TOON) | Small (~100 B) | 2.805 μs | 1,010 B | ~same |
+| | Medium (~1 KB) | 12.955 μs | 3,082 B | ~+17% |
+| | Large (~10 KB) | 137.827 μs | 38,482 B | ~+9% |
+| | Large Table (200 rows) | 468.493 μs | 347,128 B | **~−24%** |
+| | Large Array (1000 items) | 650.011 μs | 153,050 B | see note |
+| **Deserialization** (TOON → JSON) | Small | 8.443 μs | 1,906 B | ~+27% |
+| | Medium | 32.856 μs | 10,022 B | ~+16% |
+| | Large | 231.630 μs | 70,982 B | ~−8% |
+| | Large Table (200 rows) | 373.308 μs | 492,716 B | **~−23%** |
+| | Large Array (1000 items) | 541.147 μs | 314,094 B | **~−6%** |
+| **Round-Trip** (JSON → TOON → JSON) | Small | 13.785 μs | 2,906 B | ~+31% |
+| | Medium | 41.255 μs | 13,090 B | ~−4% |
+| | Large | 380.279 μs | 109,450 B | ~−19% |
+| | Large Table (200 rows) | 803.068 μs | 872,691 B | **~−13%** |
+| | Large Array (1000 items) | 1,238.984 μs | 467,130 B | ~+15% |
+
+**v3.0 §10 list-item (tabular on hyphen line):**
+
+| Operation | Mean Time | Allocated |
+|-----------|-----------|-----------|
+| Serialize | 5.788 μs | 2.15 KB |
+| Deserialize | 17.912 μs | 5.03 KB |
+| Round-trip | 25.876 μs | 7.15 KB |
 
 **Notes:**
-- Benchmarks run in Release mode with full optimizations
-- Times include GC overhead and memory allocation
-- Results may vary based on hardware and system load
-- Large Table and Large Array benchmarks use parallel processing (50+ rows, 200+ items)
-- Performance improvements in v1.1.0: 40-46% faster for large table operations compared to v1.0.0
+- **vs v1.4.2** compares this run to a baseline captured on the same machine immediately before applying v3 changes (`git stash` on `main`).
+- **Large table** paths are faster: primitive-only tabular detection avoids invalid tabular attempts; parser reads row lines at exact indent only.
+- **Large array serialize** can be slower when emitting a single inline `key[1000]:` line (one large join) vs 1000 list lines — fewer tokens, different allocation profile.
+- Small/medium deltas are within typical BenchmarkDotNet noise for micro-benchmarks; focus on table/array workloads for regression checks.
+- Large Table and Large Array use parallel processing (50+ rows, 200+ items).
 
 ### YAML Conversion Performance
 
@@ -485,14 +494,21 @@ ToonSharp v1.4.0 introduces direct serialization support for `JsonElement` (from
 ### Running Benchmarks
 
 ```bash
-# Run all benchmarks
+# Core TOON + v3 §10 benchmarks (recommended, ~30s)
 dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release
 
-# Run specific benchmarks
-dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release -- --filter "*Small*"
+# Full suite (YAML, TOML, POCO, thresholds, etc.)
+dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release -- --all
+
+# Or use the helper script
+.\scripts\run-core-benchmarks.ps1
 ```
 
-Complete results are automatically exported to `BenchmarkDotNet.Artifacts/results/` in Markdown, HTML, and CSV formats.
+Reports are written to `BenchmarkDotNet.Artifacts/results/` (Markdown, HTML, CSV). To compare against a saved baseline:
+
+```powershell
+.\scripts\compare-v3-benchmarks.ps1
+```
 
 ## 📚 Documentation
 
@@ -547,9 +563,24 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Add tests for new features
 - Update documentation as needed
 - Ensure all tests pass: `dotnet test`
-- Keep additions aligned with TOON SPEC v2.0
+- Keep additions aligned with [TOON SPEC v3.0](https://github.com/toon-format/spec/blob/main/SPEC.md)
 
 ## 📋 Release Notes
+
+### v2.0.0 (2026-05-16) — TOON SPEC v3.0
+
+**Breaking changes (encode):**
+- Conformant **§10** encoding: list-item objects with a tabular first field use `- key[N]{fields}:` on the hyphen line; rows at depth +2.
+- Array fields emit length headers: `key[N]:` (and inline primitive arrays where applicable).
+
+**Improvements:**
+- Stricter **tabular detection** (primitive-only values) — fewer false tabular encodings, better performance on nested structures.
+- Parser: row-level indent for tabular blocks; §10 list-item decode.
+- **Large table** serialize/deserialize ~20–24% faster vs v1.4.2 on reference benchmarks (same hardware).
+
+**Tests:**
+- `SpecV3ListItemTests` for §10 encode/decode and round-trip.
+- `examples/spec_v2/valid/mixed-array.json` corrected for full object parse.
 
 ### v1.4.2 (2024-12-05)
 - **Bugfix**: Fixed root-level POCO list serialization to use tabular format

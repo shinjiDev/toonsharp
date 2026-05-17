@@ -3,16 +3,19 @@
 
 $ErrorActionPreference = 'Stop'
 
-Write-Host "Running benchmarks..." -ForegroundColor Cyan
-dotnet run --project benchmarks/ToonSharp.Benchmarks/ToonSharp.Benchmarks.csproj -c Release -- --exporters Markdown --exporters Json | Out-Null
+Write-Host "Running core TOON + v3 benchmarks..." -ForegroundColor Cyan
+dotnet run --project benchmarks/ToonSharp.Benchmarks/ToonSharp.Benchmarks.csproj -c Release -- --job short --warmupCount 1 --iterationCount 5 --exporters Markdown --exporters Json | Out-Null
 
 $reportPath = "BenchmarkDotNet.Artifacts\results\ToonSharp.Benchmarks.ToonSharpBenchmarks-report-github.md"
+$v3Path = "BenchmarkDotNet.Artifacts\results\ToonSharp.Benchmarks.SpecV3ListItemBenchmarks-report-github.md"
 if (-not (Test-Path $reportPath)) {
     Write-Host "Error: Benchmark report was not found" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "Benchmarks completed. Results are stored at $reportPath" -ForegroundColor Green
+Write-Host "Benchmarks completed." -ForegroundColor Green
+Write-Host "  Core: $reportPath" -ForegroundColor Green
+if (Test-Path $v3Path) { Write-Host "  v3 §10: $v3Path" -ForegroundColor Green }
 Write-Host ""
 Write-Host "To update the README manually:" -ForegroundColor Yellow
 Write-Host "1. Review the results at: $reportPath" -ForegroundColor Yellow

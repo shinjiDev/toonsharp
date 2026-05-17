@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
@@ -13,11 +14,13 @@ public class TabularSchema
 {
     public List<string> Keys { get; set; }
     public int Savings { get; set; }
+    public string Delimiter { get; set; }
 
-    public TabularSchema(List<string> keys, int savings)
+    public TabularSchema(List<string> keys, int savings, string delimiter = ",")
     {
         Keys = keys;
         Savings = savings;
+        Delimiter = delimiter;
     }
 }
 
@@ -83,9 +86,49 @@ public static class Utils
     }
 
     /// <summary>
+    /// Append a scalar to <paramref name="sb"/> without an intermediate string when possible.
+    /// </summary>
+    public static void AppendScalar(StringBuilder sb, object? value, string? activeTableDelimiter = null)
+    {
+        if (value == null)
+        {
+            sb.Append("null");
+            return;
+        }
+
+        if (value is bool b)
+        {
+            sb.Append(b ? "true" : "false");
+            return;
+        }
+
+        if (value is string str)
+        {
+            if (StringNeedsQuotes(str, activeTableDelimiter))
+            {
+                AppendQuotedString(sb, str);
+            }
+            else
+            {
+                sb.Append(str);
+            }
+
+            return;
+        }
+
+        if (value is System.Text.Json.JsonElement jsonElement)
+        {
+            sb.Append(jsonElement.GetRawText());
+            return;
+        }
+
+        sb.Append(JsonSerializer.Serialize(value));
+    }
+
+    /// <summary>
     /// Check if a string needs quotes in TOON format.
     /// </summary>
-    public static bool StringNeedsQuotes(string value)
+    public static bool StringNeedsQuotes(string value, string? activeTableDelimiter = null)
     {
         if (string.IsNullOrEmpty(value))
         {
@@ -111,7 +154,30 @@ public static class Utils
         }
 
         // Needs quotes if contains special characters, whitespace, or starts with number
-        return value.Any(c => char.IsWhiteSpace(c) || c == ':' || c == '-' || c == '[' || c == ']' || c == '{' || c == '}' || c == ',');
+        return value.Any(c =>
+            char.IsWhiteSpace(c) ||
+            c == ':' ||
+            c == '-' ||
+            c == '[' ||
+            c == ']' ||
+            c == '{' ||
+            c == '}' ||
+            (c == ',' && (activeTableDelimiter == null || activeTableDelimiter == ",")));
+    }
+
+    /// <summary>
+    /// Format a tabular cell using the active row delimiter (§11).
+    /// </summary>
+    public static string FormatTableCell(object? value, string activeDelimiter)
+    {
+        var sb = new StringBuilder(16);
+        AppendTableCell(sb, value, activeDelimiter);
+        return sb.ToString();
+    }
+
+    public static void AppendTableCell(StringBuilder sb, object? value, string activeDelimiter)
+    {
+        AppendScalar(sb, value, activeDelimiter);
     }
 
     /// <summary>
@@ -183,7 +249,7 @@ public static class Utils
     /// Detect tabular schema for a sequence of uniform objects.
     /// Optimized sequential version - avoids parallel overhead for better performance on medium datasets.
     /// </summary>
-    public static TabularSchema? TabularSchema(IEnumerable<Dictionary<string, object?>> rows)
+    public static TabularSchema? TabularSchema(IEnumerable<Dictionary<string, object?>> rows, int minKeyCount = 2)
     {
         var rowList = rows as List<Dictionary<string, object?>> ?? rows.ToList();
         
@@ -193,33 +259,52 @@ public static class Utils
         }
 
         var firstDict = rowList[0];
-        if (firstDict.Count < 2)
+        if (firstDict.Count < minKeyCount)
         {
-            return null; // Need at least 2 keys for tabular format
+            return null;
         }
 
         // Use ToArray() for keys - more efficient than ToList() for read-only access
         var firstKeys = firstDict.Keys.ToArray();
         var keyCount = firstKeys.Length;
+        bool needsNonComma = false;
+        bool needsNonPipe = false;
 
-        // Single pass validation - optimized to avoid creating intermediate lists
-        for (int i = 1; i < rowList.Count; i++)
+        for (int i = 0; i < rowList.Count; i++)
         {
             var row = rowList[i];
-            
-            if (row.Count != keyCount)
+
+            if (i > 0 && row.Count != keyCount)
             {
-                return null; // Different number of keys
+                return null;
             }
 
-            // Iterate directly over row.Keys instead of creating ToList()
             int idx = 0;
             foreach (var key in row.Keys)
             {
-                if (idx >= keyCount || key != firstKeys[idx])
+                if (i > 0 && (idx >= keyCount || key != firstKeys[idx]))
                 {
-                    return null; // Keys don't match or order is different
+                    return null;
                 }
+
+                if (!IsTabularPrimitiveValue(row[key]))
+                {
+                    return null;
+                }
+
+                if (row[key] is string s)
+                {
+                    if (!needsNonComma && s.Contains(','))
+                    {
+                        needsNonComma = true;
+                    }
+
+                    if (!needsNonPipe && s.Contains('|'))
+                    {
+                        needsNonPipe = true;
+                    }
+                }
+
                 idx++;
             }
         }
@@ -248,10 +333,23 @@ public static class Utils
         // Always use tabular if savings are positive or neutral
         if (savings >= 0)
         {
-            return new TabularSchema(firstKeys.ToList(), savings);
+            var keys = firstKeys.ToList();
+            var delimiter = ChooseTableDelimiter(keys, rowList, needsNonComma, needsNonPipe, stringFlagsComputed: true);
+            return new TabularSchema(keys, savings, delimiter);
         }
 
         return null;
+    }
+
+    private static bool IsTabularPrimitiveValue(object? value)
+    {
+        if (value == null)
+        {
+            return true;
+        }
+
+        var type = value.GetType();
+        return type == typeof(string) || type.IsPrimitive || type == typeof(decimal);
     }
 
     private static int EstimateRegularFormatSize(List<Dictionary<string, object?>> rows, string[] keys)
@@ -312,6 +410,213 @@ public static class Utils
     public static int TokenLength(string text)
     {
         return text.Length; // Simplified - could use tiktoken equivalent if available
+    }
+
+    private static readonly string[] TableDelimiterCandidates = { ",", "|", "\t" };
+
+    /// <summary>
+    /// Pick the active tabular delimiter (§11): prefer comma, then pipe, then tab when
+    /// field names or unquoted cell values would collide with the delimiter.
+    /// </summary>
+    public static string ChooseTableDelimiter(
+        IReadOnlyList<string> keys,
+        IReadOnlyList<Dictionary<string, object?>> rows,
+        bool needsNonComma = false,
+        bool needsNonPipe = false,
+        bool stringFlagsComputed = false)
+    {
+        if (!stringFlagsComputed)
+        {
+            for (int r = 0; r < rows.Count; r++)
+            {
+                var row = rows[r];
+                for (int k = 0; k < keys.Count; k++)
+                {
+                    if (!row.TryGetValue(keys[k], out var value) || value is not string s)
+                    {
+                        continue;
+                    }
+
+                    if (!needsNonComma && s.Contains(','))
+                    {
+                        needsNonComma = true;
+                    }
+
+                    if (!needsNonPipe && s.Contains('|'))
+                    {
+                        needsNonPipe = true;
+                    }
+                }
+            }
+
+            stringFlagsComputed = true;
+        }
+
+        if (!needsNonComma && IsTableDelimiterViable(",", keys, rows, skipStringScan: stringFlagsComputed))
+        {
+            return ",";
+        }
+
+        if (!needsNonPipe && IsTableDelimiterViable("|", keys, rows, skipStringScan: stringFlagsComputed && needsNonComma))
+        {
+            return "|";
+        }
+
+        if (IsTableDelimiterViable("\t", keys, rows))
+        {
+            return "\t";
+        }
+
+        return ",";
+    }
+
+    private static bool IsTableDelimiterViable(
+        string delimiter,
+        IReadOnlyList<string> keys,
+        IReadOnlyList<Dictionary<string, object?>> rows,
+        bool skipStringScan = false)
+    {
+        for (int i = 0; i < keys.Count; i++)
+        {
+            if (keys[i].Contains(delimiter, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        if (skipStringScan && delimiter == ",")
+        {
+            return true;
+        }
+
+        for (int r = 0; r < rows.Count; r++)
+        {
+            var row = rows[r];
+            for (int k = 0; k < keys.Count; k++)
+            {
+                row.TryGetValue(keys[k], out var value);
+                if (value is string s)
+                {
+                    if (s.Contains(delimiter, StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+
+                    continue;
+                }
+
+                var scalar = FormatScalar(value);
+                if (ScalarContainsUnquotedDelimiter(scalar, delimiter))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public static void AppendQuotedString(StringBuilder sb, string value)
+    {
+        sb.Append('"');
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (c is '"' or '\\')
+            {
+                sb.Append('\\');
+            }
+
+            sb.Append(c);
+        }
+
+        sb.Append('"');
+    }
+
+    public static int EstimateScalarEncodedLength(object? value, string? activeTableDelimiter = null)
+    {
+        if (value == null)
+        {
+            return 4;
+        }
+
+        if (value is bool)
+        {
+            return value.Equals(true) ? 4 : 5;
+        }
+
+        if (value is string str)
+        {
+            if (!StringNeedsQuotes(str, activeTableDelimiter))
+            {
+                return str.Length;
+            }
+
+            int extra = 2;
+            for (int i = 0; i < str.Length; i++)
+            {
+                if (str[i] is '"' or '\\')
+                {
+                    extra++;
+                }
+            }
+
+            return str.Length + extra;
+        }
+
+        return FormatScalar(value).Length;
+    }
+
+    private static bool ScalarContainsUnquotedDelimiter(string scalar, string delimiter)
+    {
+        if (scalar.Length == 0)
+        {
+            return false;
+        }
+
+        if (scalar[0] == '"')
+        {
+            return ContainsDelimiterOutsideJsonString(scalar, delimiter);
+        }
+
+        return scalar.Contains(delimiter, StringComparison.Ordinal);
+    }
+
+    private static bool ContainsDelimiterOutsideJsonString(string scalar, string delimiter)
+    {
+        bool inQuotes = false;
+        bool escape = false;
+
+        for (int i = 0; i < scalar.Length; i++)
+        {
+            char ch = scalar[i];
+
+            if (escape)
+            {
+                escape = false;
+                continue;
+            }
+
+            if (ch == '\\')
+            {
+                escape = true;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (!inQuotes && i + delimiter.Length <= scalar.Length &&
+                scalar.AsSpan(i, delimiter.Length).SequenceEqual(delimiter.AsSpan()))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
 

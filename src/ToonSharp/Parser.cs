@@ -310,6 +310,7 @@ public class ToonParser
     private readonly string mode;
     private List<Line> lines = new();
     private int currentIndex = 0;
+    private int? cachedIndentSize;
     private static readonly Regex FoldableSegmentRegex = new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
     private const string DefaultTableDelimiter = ",";
 
@@ -504,22 +505,201 @@ public class ToonParser
             }
 
             var content = line.Content.Substring(1).TrimStart();
+            var headerLineIndex = currentIndex;
             currentIndex++;
 
             object? value;
-            if (currentIndex < lines.Count && lines[currentIndex].Indent > baseIndent)
+            if (content.Length == 0)
             {
-                value = ParseValue(baseIndent + 2);
+                value = new Dictionary<string, object?>();
             }
             else
             {
-                value = ParseScalarSpan(content.AsSpan());
+                var tableHeader = ParseTableHeader(content);
+                if (tableHeader != null && content.IndexOf('{') >= 0)
+                {
+                    value = ParseListItemWithTabularFirstField(tableHeader, baseIndent, headerLineIndex);
+                }
+                else if (content.Contains(':'))
+                {
+                    value = ParseListItemWithFirstFieldOnHyphen(content, baseIndent);
+                }
+                else if (currentIndex < lines.Count && lines[currentIndex].Indent > baseIndent)
+                {
+                    value = ParseValue(baseIndent + DetectIndentSize() * 2);
+                }
+                else
+                {
+                    value = ParseScalarSpan(content.AsSpan());
+                }
             }
 
             result.Add(value);
         }
 
         return result;
+    }
+
+    private Dictionary<string, object?> ParseListItemWithTabularFirstField(TableHeaderInfo header, int baseIndent, int headerLineIndex)
+    {
+        var step = DetectIndentSize();
+        var rowIndent = baseIndent + step * 2;
+        var siblingIndent = baseIndent + step;
+        var (rows, nextIndex) = ParseTableFromHeader(
+            headerLineIndex,
+            header.Fields,
+            header.Count,
+            header.Delimiter,
+            baseIndent,
+            rowIndent,
+            siblingIndent);
+        currentIndex = nextIndex;
+
+        var obj = new Dictionary<string, object?> { [header.Key] = rows };
+        MergeListItemSiblingFields(obj, siblingIndent, baseIndent);
+        return obj;
+    }
+
+    private Dictionary<string, object?> ParseListItemWithFirstFieldOnHyphen(string content, int baseIndent)
+    {
+        var tokenResult = SplitKeyValueToken(content);
+        if (tokenResult == null)
+        {
+            return new Dictionary<string, object?>();
+        }
+
+        var (keyToken, valueStr) = tokenResult.Value;
+        var key = keyToken.Clean;
+        InlineArrayInfo? inlineArray = !keyToken.WasQuoted ? TryParseInlineArrayKey(key) : null;
+        var targetKey = inlineArray?.BaseKey ?? key;
+        var allowPathExpansion = !keyToken.WasQuoted;
+        var treatAsInlineArray = inlineArray.HasValue &&
+                                 (!string.IsNullOrWhiteSpace(valueStr) || inlineArray.Value.Count == 0);
+
+        var obj = new Dictionary<string, object?>();
+        object? firstValue;
+
+        var hyphenLineNo = lines[currentIndex - 1].LineNo;
+
+        if (treatAsInlineArray)
+        {
+            firstValue = ParseInlineArrayValues(valueStr, inlineArray!.Value.Count, hyphenLineNo);
+        }
+        else if (currentIndex < lines.Count && lines[currentIndex].Indent > baseIndent + DetectIndentSize())
+        {
+            firstValue = ParseValue(lines[currentIndex].Indent);
+        }
+        else if (!string.IsNullOrWhiteSpace(valueStr))
+        {
+            firstValue = ParseScalarSpan(valueStr.AsSpan().Trim());
+        }
+        else
+        {
+            firstValue = null;
+        }
+
+        AssignValue(obj, targetKey, firstValue, allowPathExpansion, hyphenLineNo);
+        MergeListItemSiblingFields(obj, baseIndent + DetectIndentSize(), baseIndent);
+        return obj;
+    }
+
+    private void MergeListItemSiblingFields(Dictionary<string, object?> obj, int fieldIndent, int listItemIndent)
+    {
+        while (currentIndex < lines.Count)
+        {
+            var line = lines[currentIndex];
+            if (line.Indent < fieldIndent)
+            {
+                break;
+            }
+
+            if (line.Indent == listItemIndent && line.Content.StartsWith("-"))
+            {
+                break;
+            }
+
+            if (line.Indent != fieldIndent)
+            {
+                currentIndex++;
+                continue;
+            }
+
+            if (!line.Content.Contains(":"))
+            {
+                break;
+            }
+
+            var tokenResult = SplitKeyValueToken(line.Content);
+            if (tokenResult == null)
+            {
+                currentIndex++;
+                continue;
+            }
+
+            var (keyToken, valueStr) = tokenResult.Value;
+            var key = keyToken.Clean;
+            InlineArrayInfo? inlineArray = !keyToken.WasQuoted ? TryParseInlineArrayKey(key) : null;
+            var targetKey = inlineArray?.BaseKey ?? key;
+            var allowPathExpansion = !keyToken.WasQuoted;
+            var treatAsInlineArray = inlineArray.HasValue &&
+                                     (!string.IsNullOrWhiteSpace(valueStr) || inlineArray.Value.Count == 0);
+
+            currentIndex++;
+            object? value;
+
+            if (treatAsInlineArray)
+            {
+                value = ParseInlineArrayValues(valueStr, inlineArray!.Value.Count, line.LineNo);
+            }
+            else if (currentIndex < lines.Count && lines[currentIndex].Indent > fieldIndent)
+            {
+                value = ParseValue(lines[currentIndex].Indent);
+            }
+            else if (!string.IsNullOrWhiteSpace(valueStr))
+            {
+                value = ParseScalarSpan(valueStr.AsSpan().Trim());
+            }
+            else
+            {
+                value = null;
+            }
+
+            AssignValue(obj, targetKey, value, allowPathExpansion, line.LineNo);
+        }
+    }
+
+    private int DetectIndentSize()
+    {
+        if (cachedIndentSize.HasValue)
+        {
+            return cachedIndentSize.Value;
+        }
+
+        int gcd = 0;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            int indent = lines[i].Indent;
+            if (indent <= 0)
+            {
+                continue;
+            }
+
+            gcd = gcd == 0 ? indent : Gcd(gcd, indent);
+        }
+
+        cachedIndentSize = gcd > 0 ? gcd : 2;
+        return cachedIndentSize.Value;
+    }
+
+    private static int Gcd(int a, int b)
+    {
+        while (b != 0)
+        {
+            int t = b;
+            b = a % b;
+            a = t;
+        }
+        return a;
     }
 
     private TableHeaderInfo? ParseTableHeader(string content)
@@ -572,20 +752,43 @@ public class ToonParser
         return new TableHeaderInfo(cleanKey, !wasQuoted, count, fields, delimiter);
     }
 
-    private (List<Dictionary<string, object?>> rows, int nextIndex) ParseTableFromHeader(int start, List<string> fields, int expectedLength, string delimiter, int indent)
+    private (List<Dictionary<string, object?>> rows, int nextIndex) ParseTableFromHeader(
+        int start,
+        List<string> fields,
+        int expectedLength,
+        string delimiter,
+        int headerIndent,
+        int? rowIndentOverride = null,
+        int? siblingIndentOverride = null)
     {
         var headerLine = lines[start];
         int index = start + 1;
-        
-        // First, collect all table row lines
+        int step = DetectIndentSize();
+        int rowIndent = rowIndentOverride ?? (index < lines.Count && lines[index].Indent > headerIndent
+            ? lines[index].Indent
+            : headerIndent + step);
+        int siblingIndent = siblingIndentOverride ?? headerIndent + step;
+
         var tableLines = new List<(Line line, int originalIndex)>();
         while (index < lines.Count)
         {
             var line = lines[index];
-            if (line.Indent <= indent)
+            if (line.Indent <= headerIndent)
             {
                 break;
             }
+
+            if (siblingIndentOverride.HasValue && line.Indent == siblingIndent && line.Indent < rowIndent)
+            {
+                break;
+            }
+
+            if (line.Indent != rowIndent)
+            {
+                index++;
+                continue;
+            }
+
             tableLines.Add((line, index));
             index++;
         }
@@ -594,74 +797,24 @@ public class ToonParser
         
         // Use parallel processing for large tables (threshold: 50 rows)
         // Optimized based on benchmark results showing good performance at 200 rows
-        const int parallelThreshold = 50;
+        const int parallelThreshold = 100;
         if (tableLines.Count >= parallelThreshold)
         {
             var parsedRows = new Dictionary<string, object?>[tableLines.Count];
+            var fieldsArray = fields.ToArray();
             Parallel.For(0, tableLines.Count, i =>
             {
                 var (line, _) = tableLines[i];
-                
-                // Parse delimited values
-                var values = SplitEscapedRow(line.Content.Trim(), delimiter);
-                if (values.Count == 0)
-                {
-                    // Fallback: simple split
-                    values = line.Content
-                        .Trim()
-                        .Split(new[] { delimiter }, StringSplitOptions.RemoveEmptyEntries)
-                        .Select(v => v.Trim())
-                        .ToList();
-                }
-
-                if (values.Count != fields.Count)
-                {
-                    throw new ToonSyntaxError(
-                        $"Expected {fields.Count} values in table row, got {values.Count}",
-                        line.LineNo,
-                        1);
-                }
-
-                var row = new Dictionary<string, object?>();
-                for (int j = 0; j < fields.Count; j++)
-                {
-                    row[fields[j]] = ParseScalarSpan(values[j].AsSpan());
-                }
-                parsedRows[i] = row;
+                parsedRows[i] = ParseTableRow(line, fieldsArray, delimiter);
             });
             rows.AddRange(parsedRows);
         }
         else
         {
-            // Sequential processing for small tables (less overhead)
+            var fieldsArray = fields.ToArray();
             foreach (var (line, _) in tableLines)
             {
-                // Parse delimited values
-                var values = SplitEscapedRow(line.Content.Trim(), delimiter);
-                if (values.Count == 0)
-                {
-                    // Fallback: simple split
-                    values = line.Content
-                        .Trim()
-                        .Split(new[] { delimiter }, StringSplitOptions.RemoveEmptyEntries)
-                        .Select(v => v.Trim())
-                        .ToList();
-                }
-
-                if (values.Count != fields.Count)
-                {
-                    throw new ToonSyntaxError(
-                        $"Expected {fields.Count} values in table row, got {values.Count}",
-                        line.LineNo,
-                        1);
-                }
-
-                var row = new Dictionary<string, object?>();
-                for (int i = 0; i < fields.Count; i++)
-                {
-                    row[fields[i]] = ParseScalarSpan(values[i].AsSpan());
-                }
-                rows.Add(row);
+                rows.Add(ParseTableRow(line, fieldsArray, delimiter));
             }
         }
 
@@ -675,6 +828,137 @@ public class ToonParser
         }
 
         return (rows, index);
+    }
+
+    private Dictionary<string, object?> ParseTableRow(Line line, string[] fields, string delimiter)
+    {
+        var content = line.Content.AsSpan().Trim();
+        if (delimiter == DefaultTableDelimiter &&
+            TryParseCommaDelimitedTableRow(content, fields, out var fastRow))
+        {
+            return fastRow;
+        }
+
+        var values = SplitEscapedRow(line.Content.Trim(), delimiter);
+        if (values.Count == 0)
+        {
+            values = line.Content
+                .Trim()
+                .Split(new[] { delimiter }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(v => v.Trim())
+                .ToList();
+        }
+
+        if (values.Count != fields.Length)
+        {
+            throw new ToonSyntaxError(
+                $"Expected {fields.Length} values in table row, got {values.Count}",
+                line.LineNo,
+                1);
+        }
+
+        var row = new Dictionary<string, object?>(fields.Length);
+        for (int i = 0; i < fields.Length; i++)
+        {
+            row[fields[i]] = ParseScalarSpan(values[i].AsSpan());
+        }
+
+        return row;
+    }
+
+    private static bool TryParseCommaDelimitedTableRow(
+        ReadOnlySpan<char> line,
+        string[] fields,
+        out Dictionary<string, object?> row)
+    {
+        row = null!;
+        if (line.IsEmpty || line.IndexOf('"') >= 0)
+        {
+            return false;
+        }
+
+        var parsed = new Dictionary<string, object?>(fields.Length);
+        int fieldIndex = 0;
+        int start = 0;
+
+        for (int i = 0; i <= line.Length; i++)
+        {
+            if (i < line.Length && line[i] != ',')
+            {
+                continue;
+            }
+
+            if (fieldIndex >= fields.Length)
+            {
+                return false;
+            }
+
+            parsed[fields[fieldIndex]] = ParseTableScalarToken(line.Slice(start, i - start));
+            fieldIndex++;
+            start = i + 1;
+        }
+
+        if (fieldIndex != fields.Length)
+        {
+            return false;
+        }
+
+        row = parsed;
+        return true;
+    }
+
+    private static object? ParseTableScalarToken(ReadOnlySpan<char> token)
+    {
+        if (token.IsEmpty)
+        {
+            return null;
+        }
+
+        int s = 0;
+        int e = token.Length - 1;
+        while (s <= e && token[s] == ' ')
+        {
+            s++;
+        }
+
+        while (e >= s && token[e] == ' ')
+        {
+            e--;
+        }
+
+        if (s > e)
+        {
+            return null;
+        }
+
+        var trimmed = token.Slice(s, e - s + 1);
+        if (trimmed.SequenceEqual("true"))
+        {
+            return true;
+        }
+
+        if (trimmed.SequenceEqual("false"))
+        {
+            return false;
+        }
+
+        if (trimmed.SequenceEqual("null"))
+        {
+            return null;
+        }
+
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
+        {
+            return DecodeJsonStringLiteral(trimmed);
+        }
+
+        var number = Utils.GuessNumber(trimmed);
+        if (number != null)
+        {
+            return number;
+        }
+
+        return trimmed.ToString();
     }
 
     private List<string> SplitEscapedRow(string line, string separator)
@@ -709,13 +993,10 @@ public class ToonParser
                 continue;
             }
 
-            if (!inQuotes && i + separator.Length <= line.Length && 
+            if (!inQuotes && i + separator.Length <= line.Length &&
                 line.AsSpan(i, separator.Length).SequenceEqual(separator.AsSpan()))
             {
-                // Optimize: trim the StringBuilder content efficiently
-                var token = current.ToString();
-                var trimmed = token.AsSpan().Trim();
-                result.Add(trimmed.IsEmpty ? string.Empty : trimmed.ToString());
+                AddTrimmedToken(result, current);
                 current.Clear();
                 i += separator.Length - 1;
                 continue;
@@ -726,13 +1007,45 @@ public class ToonParser
 
         if (current.Length > 0)
         {
-            // Optimize: trim the StringBuilder content efficiently
-            var token = current.ToString();
-            var trimmed = token.AsSpan().Trim();
-            result.Add(trimmed.IsEmpty ? string.Empty : trimmed.ToString());
+            AddTrimmedToken(result, current);
         }
 
         return result;
+    }
+
+    private static void AddTrimmedToken(List<string> result, StringBuilder current)
+    {
+        if (current.Length == 0)
+        {
+            result.Add(string.Empty);
+            return;
+        }
+
+        int start = 0;
+        int end = current.Length - 1;
+        while (start <= end && char.IsWhiteSpace(current[start]))
+        {
+            start++;
+        }
+
+        while (end >= start && char.IsWhiteSpace(current[end]))
+        {
+            end--;
+        }
+
+        if (start > end)
+        {
+            result.Add(string.Empty);
+            return;
+        }
+
+        if (start == 0 && end == current.Length - 1)
+        {
+            result.Add(current.ToString());
+            return;
+        }
+
+        result.Add(current.ToString(start, end - start + 1));
     }
 
     private (KeyToken token, string? value)? SplitKeyValueToken(string line)
@@ -766,7 +1079,13 @@ public class ToonParser
 
         var keySpan = key.AsSpan();
         var countSegment = keySpan.Slice(bracketIndex + 1, keySpan.Length - bracketIndex - 2);
-        if (!int.TryParse(countSegment, out var count))
+        int digitLength = 0;
+        while (digitLength < countSegment.Length && char.IsDigit(countSegment[digitLength]))
+        {
+            digitLength++;
+        }
+
+        if (digitLength == 0 || !int.TryParse(countSegment.Slice(0, digitLength), out var count))
         {
             return null;
         }
@@ -782,24 +1101,233 @@ public class ToonParser
 
     private List<object?> ParseInlineArrayValues(string? valueSegment, int expectedCount, int lineNo)
     {
-        var tokens = string.IsNullOrWhiteSpace(valueSegment)
-            ? new List<string>()
-            : SplitEscapedRow(valueSegment.Trim(), DefaultTableDelimiter);
+        var result = new List<object?>(expectedCount);
 
-        if (tokens.Count != expectedCount)
+        if (string.IsNullOrWhiteSpace(valueSegment))
+        {
+            if (expectedCount != 0)
+            {
+                throw new ToonSyntaxError(
+                    $"Inline array declares {expectedCount} values but found 0",
+                    lineNo);
+            }
+
+            return result;
+        }
+
+        var span = valueSegment.AsSpan().Trim();
+        if (TryParseCommaSeparatedJsonStrings(span, expectedCount, lineNo, result))
+        {
+            return result;
+        }
+
+        ParseDelimitedScalarsInto(span, DefaultTableDelimiter, expectedCount, lineNo, result);
+        return result;
+    }
+
+    /// <summary>
+    /// Fast path for inline arrays of JSON-quoted strings: "a","b","c" (common for large primitive arrays).
+    /// </summary>
+    private static bool TryParseCommaSeparatedJsonStrings(
+        ReadOnlySpan<char> line,
+        int expectedCount,
+        int lineNo,
+        List<object?> destination)
+    {
+        if (line.IsEmpty || line[0] != '"')
+        {
+            return false;
+        }
+
+        int pos = 0;
+        for (int found = 0; found < expectedCount; found++)
+        {
+            if (pos >= line.Length || line[pos] != '"')
+            {
+                return false;
+            }
+
+            int end = pos + 1;
+            while (end < line.Length)
+            {
+                char ch = line[end];
+                if (ch == '\\')
+                {
+                    if (end + 1 >= line.Length)
+                    {
+                        return false;
+                    }
+
+                    end += 2;
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    break;
+                }
+
+                end++;
+            }
+
+            if (end >= line.Length)
+            {
+                return false;
+            }
+
+            destination.Add(DecodeJsonStringLiteral(line.Slice(pos, end - pos + 1)));
+            pos = end + 1;
+
+            if (found + 1 < expectedCount)
+            {
+                if (pos >= line.Length || line[pos] != ',')
+                {
+                    return false;
+                }
+
+                pos++;
+            }
+        }
+
+        if (pos != line.Length)
         {
             throw new ToonSyntaxError(
-                $"Inline array declares {expectedCount} values but found {tokens.Count}",
+                $"Inline array declares {expectedCount} values but found trailing content",
                 lineNo);
         }
 
-        var result = new List<object?>();
-        foreach (var token in tokens)
+        return true;
+    }
+
+    private static string DecodeJsonStringLiteral(ReadOnlySpan<char> quoted)
+    {
+        if (quoted.Length < 2 || quoted[0] != '"' || quoted[^1] != '"')
         {
-            result.Add(ParseScalarSpan(token.AsSpan()));
+            return quoted.ToString();
         }
 
-        return result;
+        var inner = quoted.Slice(1, quoted.Length - 2);
+        if (!inner.Contains('\\'))
+        {
+            return inner.ToString();
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<string>(quoted.ToString()) ?? quoted.ToString();
+        }
+        catch
+        {
+            return quoted.ToString();
+        }
+    }
+
+    private void ParseDelimitedScalarsInto(
+        ReadOnlySpan<char> line,
+        string separator,
+        int expectedCount,
+        int lineNo,
+        List<object?> destination)
+    {
+        if (separator == DefaultTableDelimiter &&
+            TryParseCommaSeparatedJsonStrings(line, expectedCount, lineNo, destination))
+        {
+            return;
+        }
+
+        int found = 0;
+        int start = 0;
+        bool inQuotes = false;
+        bool escape = false;
+
+        for (int i = 0; i <= line.Length; i++)
+        {
+            if (i < line.Length)
+            {
+                char ch = line[i];
+
+                if (escape)
+                {
+                    escape = false;
+                    continue;
+                }
+
+                if (ch == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    inQuotes = !inQuotes;
+                    continue;
+                }
+
+                if (!inQuotes && separator.Length == 1 && ch == separator[0])
+                {
+                    AddInlineScalarToken(line.Slice(start, i - start), destination);
+                    found++;
+                    start = i + 1;
+                    continue;
+                }
+
+                if (!inQuotes && separator.Length > 1 && i + separator.Length <= line.Length &&
+                    line.Slice(i, separator.Length).SequenceEqual(separator.AsSpan()))
+                {
+                    AddInlineScalarToken(line.Slice(start, i - start), destination);
+                    found++;
+                    start = i + separator.Length;
+                    i += separator.Length - 1;
+                    continue;
+                }
+            }
+
+            if (i == line.Length)
+            {
+                if (start < line.Length || found > 0)
+                {
+                    AddInlineScalarToken(line.Slice(start, i - start), destination);
+                    found++;
+                }
+            }
+        }
+
+        if (found != expectedCount)
+        {
+            throw new ToonSyntaxError(
+                $"Inline array declares {expectedCount} values but found {found}",
+                lineNo);
+        }
+    }
+
+    private void AddInlineScalarToken(ReadOnlySpan<char> token, List<object?> destination)
+    {
+        if (token.IsEmpty)
+        {
+            destination.Add(null);
+            return;
+        }
+
+        int start = 0;
+        int end = token.Length - 1;
+        while (start <= end && token[start] == ' ')
+        {
+            start++;
+        }
+
+        while (end >= start && token[end] == ' ')
+        {
+            end--;
+        }
+
+        if (start > end)
+        {
+            destination.Add(null);
+            return;
+        }
+
+        destination.Add(ParseScalarSpan(token.Slice(start, end - start + 1)));
     }
 
     private void AssignValue(Dictionary<string, object?> target, string key, object? value, bool allowPathExpansion, int? lineNo)
@@ -1041,15 +1569,7 @@ public class ToonParser
         // Check for quoted strings
         if (content.Length >= 2 && content[0] == '"' && content[^1] == '"')
         {
-            try
-            {
-                // Need string for JsonSerializer
-                return JsonSerializer.Deserialize<string>(content.ToString());
-            }
-            catch
-            {
-                return content.ToString();
-            }
+            return DecodeJsonStringLiteral(content);
         }
 
         // For numbers, use the optimized Span version

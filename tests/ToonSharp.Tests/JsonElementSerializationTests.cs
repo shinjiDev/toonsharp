@@ -33,10 +33,7 @@ public class JsonElementSerializationTests
         
         var toon = Api.ToToon(obj);
         
-        Assert.Contains("items:", toon);
-        Assert.Contains("- apple", toon);
-        Assert.Contains("- banana", toon);
-        Assert.Contains("- cherry", toon);
+        Assert.Contains("items[3]: apple,banana,cherry", toon);
     }
 
     [Fact]
@@ -88,7 +85,7 @@ public class JsonElementSerializationTests
         
         var toon = Api.ToToon(obj);
         
-        Assert.Contains("items: []", toon);
+        Assert.Contains("items[0]:", toon);
     }
 
     [Fact]
@@ -99,9 +96,7 @@ public class JsonElementSerializationTests
         
         var toon = Api.ToToon(obj);
         
-        Assert.Contains("numbers:", toon);
-        Assert.Contains("- 1", toon);
-        Assert.Contains("- 5", toon);
+        Assert.Contains("numbers[5]: 1,2,3,4,5", toon);
     }
 
     [Fact]
@@ -134,11 +129,7 @@ public class JsonElementSerializationTests
         Assert.Contains("Content: \"This is a document about digital transformation in enterprises...\"", toon);
         Assert.Contains("AnalysisType: sentiment_and_topics", toon);
         Assert.Contains("MaxTokensResponse: 500", toon);
-        Assert.Contains("DesiredMetrics:", toon);
-        Assert.Contains("- sentiment", toon);
-        Assert.Contains("- topics", toon);
-        Assert.Contains("- entities", toon);
-        Assert.Contains("- summary", toon);
+        Assert.Contains("DesiredMetrics[4]: sentiment,topics,entities,summary", toon);
     }
 
     #endregion
@@ -236,7 +227,7 @@ public class JsonElementSerializationTests
         
         var toon = Api.ToToon(obj);
         
-        Assert.Contains("matrix:", toon);
+        Assert.Contains("matrix[3]:", toon);
         // Each inner array should be on its own line
         Assert.Contains("-", toon);
     }
@@ -255,9 +246,7 @@ public class JsonElementSerializationTests
         Assert.Contains("port: 5432", toon);
         Assert.Contains("credentials:", toon);
         Assert.Contains("user: admin", toon);
-        Assert.Contains("roles:", toon);
-        Assert.Contains("- read", toon);
-        Assert.Contains("- write", toon);
+        Assert.Contains("roles[2]: read,write", toon);
     }
 
     #endregion

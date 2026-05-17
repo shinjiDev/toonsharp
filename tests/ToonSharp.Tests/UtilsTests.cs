@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Xunit;
 using ToonSharp;
 
@@ -83,6 +84,30 @@ public class UtilsTests
     {
         Assert.Null(Utils.GuessNumber("not_a_number"));
         Assert.Null(Utils.GuessNumber("abc123"));
+    }
+
+    [Fact]
+    public void ChooseTableDelimiter_uses_pipe_when_values_contain_comma()
+    {
+        var keys = new List<string> { "id", "value" };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["id"] = "1", ["value"] = "a,b" },
+        };
+
+        Assert.Equal("|", Utils.ChooseTableDelimiter(keys, rows));
+    }
+
+    [Fact]
+    public void ChooseTableDelimiter_uses_comma_by_default()
+    {
+        var keys = new List<string> { "id", "name" };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["id"] = 1L, ["name"] = "Ada" },
+        };
+
+        Assert.Equal(",", Utils.ChooseTableDelimiter(keys, rows));
     }
 }
 

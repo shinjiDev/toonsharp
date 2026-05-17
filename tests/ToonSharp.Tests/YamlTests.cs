@@ -130,7 +130,7 @@ items:
         Assert.Contains("Luz", finalToon);
         Assert.Contains("age:", finalToon);
         Assert.Contains("16", finalToon);
-        Assert.Contains("items:", finalToon);
+        Assert.Contains("items[", finalToon);
         Assert.Contains("sword", finalToon);
     }
 
@@ -185,7 +185,7 @@ user:
         Assert.Contains("name:", toon);
         Assert.Contains("Luz", toon);
         Assert.Contains("profile:", toon);
-        Assert.Contains("friends:", toon);
+        Assert.Contains("friends[", toon);
         Assert.Contains("Amity", toon);
     }
 

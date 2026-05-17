@@ -45,7 +45,7 @@ colors = [""red"", ""green"", ""blue""]
 ";
         var toon = Api.TomlToToon(toml, indent: 2, mode: "readable");
         
-        Assert.Contains("colors:", toon);
+        Assert.Contains("colors[3]: red,green,blue", toon);
         Assert.Contains("red", toon);
         Assert.Contains("green", toon);
         Assert.Contains("blue", toon);

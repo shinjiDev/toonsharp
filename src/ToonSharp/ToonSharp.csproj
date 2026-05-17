@@ -8,10 +8,10 @@
     
     <!-- NuGet Package Metadata -->
     <PackageId>ToonLib</PackageId>
-    <Version>1.4.2</Version>
+    <Version>2.0.0</Version>
     <Authors>Christian Palomares</Authors>
     <Company>ToonSharp Contributors</Company>
-    <Description>A production-grade C# library for converting data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) with full TOON SPEC v2.0 compliance. Features direct JSON string serialization (JsonElement), POCO object serialization via reflection, YAML/TOML bidirectional conversion, parallel processing, and Span&lt;T&gt; optimizations. Perfect for cross-ecosystem configuration management.</Description>
+    <Description>A production-grade C# library for converting data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) with full TOON SPEC v3.0 compliance. Features direct JSON string serialization (JsonElement), POCO object serialization via reflection, YAML/TOML bidirectional conversion, parallel processing, and Span&lt;T&gt; optimizations. Perfect for cross-ecosystem configuration management.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/shinjiDev/toonsharp</PackageProjectUrl>
     <RepositoryUrl>https://github.com/shinjiDev/toonsharp</RepositoryUrl>
