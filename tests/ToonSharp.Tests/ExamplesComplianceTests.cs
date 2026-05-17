@@ -176,8 +176,13 @@ public class ExamplesComplianceTests
     private static JsonNode NormalizeJson(string jsonText) =>
         JsonNode.Parse(jsonText) ?? throw new InvalidOperationException("Invalid JSON content.");
 
-    private static JsonNode NormalizeJson(object? graph)
+        private static JsonNode NormalizeJson(object? graph)
     {
+        if (graph is null)
+        {
+            return JsonNode.Parse("null") ?? throw new InvalidOperationException("Invalid graph serialization result.");
+        }
+
         var json = JsonSerializer.Serialize(graph, new JsonSerializerOptions { WriteIndented = false });
         return JsonNode.Parse(json) ?? throw new InvalidOperationException("Invalid graph serialization result.");
     }

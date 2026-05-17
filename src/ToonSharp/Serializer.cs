@@ -20,6 +20,10 @@ public class ToonSerializer
     private readonly int flattenDepth;
     private readonly int arrayParallelThreshold;
     private readonly int tableParallelThreshold;
+    private int? _scopeFlattenDepth;
+    private HashSet<string>? _rootReservedKeys;
+
+    private int ActiveFlattenDepth => _scopeFlattenDepth ?? flattenDepth;
 
     // Cache indent strings to avoid repeated allocations (up to 20 levels)
     private static readonly string[] IndentCache = CreateIndentCache(20);
@@ -66,6 +70,12 @@ public class ToonSerializer
     {
         var writer = new ToonWriter(4096);
         obj = NormalizeObject(obj);
+        _rootReservedKeys = null;
+        if (keyFoldingSafe && obj is Dictionary<string, object?> rootDict)
+        {
+            _rootReservedKeys = KeyFolding.CollectLiteralAndFoldedKeys(rootDict, flattenDepth);
+        }
+
         if (obj is List<object?> rootList)
         {
             WriteRootArray(rootList, writer);
@@ -97,7 +107,12 @@ public class ToonSerializer
             return;
         }
 
-        writer.AddLine(string.Concat("[", seq.Count.ToString(), "]:"));
+        if (TryWriteArrayOfArraysAsListItems(seq, 0, writer, isRoot: true))
+        {
+            return;
+        }
+
+        writer.AddLine(FormatKeyedArrayHeader(string.Empty, seq.Count));
         WriteArray(seq, indent, writer);
     }
 
@@ -138,7 +153,7 @@ public class ToonSerializer
         return type == typeof(string) || type == typeof(bool) || type.IsPrimitive || type == typeof(decimal);
     }
 
-    private void WriteValue(object? obj, int level, ToonWriter writer)
+    private void WriteValue(object? obj, int level, ToonWriter writer, string? pathPrefix = null)
     {
         string indent = GetIndent(level);
 
@@ -173,7 +188,7 @@ public class ToonSerializer
 
                 return;
             }
-            WriteObject(dict, level, writer);
+            WriteObject(dict, level, writer, pathPrefix);
             return;
         }
 
@@ -226,24 +241,36 @@ public class ToonSerializer
         writer.AddLine(indent + FormatScalar(obj));
     }
 
-    private void WriteObject(Dictionary<string, object?> mapping, int level, ToonWriter writer)
+    private void WriteObject(Dictionary<string, object?> mapping, int level, ToonWriter writer, string? pathPrefix = null)
     {
-        HashSet<string>? reservedKeys = keyFoldingSafe
-            ? KeyFolding.CollectLiteralAndFoldedKeys(mapping, flattenDepth)
-            : null;
+        var reservedKeys = _rootReservedKeys;
 
         foreach (var kvp in mapping)
         {
-            if (keyFoldingSafe &&
-                KeyFolding.TryGetFoldedPath(kvp.Key, kvp.Value, flattenDepth, out var leaf) is { } foldedPath &&
-                !KeyFolding.WouldFoldCollide(foldedPath, kvp.Key, reservedKeys!))
+            if (keyFoldingSafe && reservedKeys != null)
             {
-                WriteFoldedField(foldedPath, leaf, level, writer);
-                continue;
+                var foldedPath = KeyFolding.TryGetFoldedPath(kvp.Key, kvp.Value, ActiveFlattenDepth, out var leaf);
+                if (foldedPath != null)
+                {
+                    var fullFoldedPath = pathPrefix == null
+                        ? foldedPath
+                        : string.Concat(pathPrefix, ".", foldedPath);
+                    if (!KeyFolding.WouldFoldCollide(fullFoldedPath, kvp.Key, reservedKeys))
+                    {
+                        WriteFoldedField(foldedPath, leaf, level, writer, pathPrefix);
+                        continue;
+                    }
+                }
             }
 
             var keyRepr = Utils.FormatKey(kvp.Key);
             var value = kvp.Value;
+
+            if (value is Dictionary<string, object?> { Count: 0 })
+            {
+                writer.AddLine(string.Concat(GetIndent(level), keyRepr, ":"));
+                continue;
+            }
 
             if (TryNormalizeList(value, out var listValue))
             {
@@ -257,13 +284,24 @@ public class ToonSerializer
                     continue;
                 }
 
-                writer.AddLine(string.Concat(GetIndent(level), keyRepr, "[", listValue.Count.ToString(), "]:"));
+                if (TryWriteArrayOfArraysAsListItems(listValue, level, writer, isRoot: false, keyRepr))
+                {
+                    continue;
+                }
+
+                WriteKeyedArrayHeaderLine(writer, level, keyRepr, listValue.Count);
                 WriteArray(listValue, level + indent, writer);
                 continue;
             }
 
             // Cache the prefix (used multiple times)
             var prefix = string.Concat(GetIndent(level), keyRepr, ":");
+
+            if (value is string)
+            {
+                writer.AddLine(string.Concat(prefix, " ", FormatScalar(value)));
+                continue;
+            }
 
             var inlineContainer = InlineContainerRepr(value);
             if (inlineContainer != null)
@@ -277,10 +315,12 @@ public class ToonSerializer
                              (value.GetType() == typeof(Dictionary<string, object?>) ||
                               (value is System.Collections.IEnumerable && value.GetType() != typeof(string)));
 
+            var childPrefix = pathPrefix == null ? kvp.Key : string.Concat(pathPrefix, ".", kvp.Key);
+
             if (isContainer)
             {
                 writer.AddLine(prefix);
-                WriteValue(value, level + indent, writer);
+                WriteValue(value, level + indent, writer, childPrefix);
             }
             else if (IsInline(value))
             {
@@ -289,13 +329,19 @@ public class ToonSerializer
             else
             {
                 writer.AddLine(prefix);
-                WriteValue(value, level + indent, writer);
+                WriteValue(value, level + indent, writer, childPrefix);
             }
         }
     }
 
-    private void WriteFoldedField(string foldedPath, object? value, int level, ToonWriter writer)
+    private void WriteFoldedField(string foldedPath, object? value, int level, ToonWriter writer, string? pathPrefix = null)
     {
+        if (value is Dictionary<string, object?> { Count: 0 })
+        {
+            writer.AddLine(string.Concat(GetIndent(level), foldedPath, ":"));
+            return;
+        }
+
         if (TryNormalizeList(value, out var listValue))
         {
             if (listValue.Count > 0 && TryWriteAsTabular(foldedPath, listValue, level, writer))
@@ -308,7 +354,12 @@ public class ToonSerializer
                 return;
             }
 
-            writer.AddLine(string.Concat(GetIndent(level), foldedPath, "[", listValue.Count.ToString(), "]:"));
+            if (TryWriteArrayOfArraysAsListItems(listValue, level, writer, isRoot: false, foldedPath))
+            {
+                return;
+            }
+
+            WriteKeyedArrayHeaderLine(writer, level, foldedPath, listValue.Count);
             WriteArray(listValue, level + indent, writer);
             return;
         }
@@ -328,7 +379,20 @@ public class ToonSerializer
         if (isContainer)
         {
             writer.AddLine(prefix);
-            WriteValue(value, level + indent, writer);
+            var segmentCount = foldedPath.Count(c => c == '.') + 1;
+            var nestedPrefix = pathPrefix == null
+                ? foldedPath
+                : string.Concat(pathPrefix, ".", foldedPath);
+            var prevScope = _scopeFlattenDepth;
+            try
+            {
+                _scopeFlattenDepth = Math.Max(0, flattenDepth - segmentCount);
+                WriteValue(value, level + indent, writer, nestedPrefix);
+            }
+            finally
+            {
+                _scopeFlattenDepth = prevScope;
+            }
         }
         else if (IsInline(value))
         {
@@ -337,7 +401,10 @@ public class ToonSerializer
         else
         {
             writer.AddLine(prefix);
-            WriteValue(value, level + indent, writer);
+            var nestedPrefix = pathPrefix == null
+                ? foldedPath
+                : string.Concat(pathPrefix, ".", foldedPath);
+            WriteValue(value, level + indent, writer, nestedPrefix);
         }
     }
 
@@ -362,7 +429,7 @@ public class ToonSerializer
             dictList.Add((Dictionary<string, object?>)items[i]!);
         }
 
-        var schema = Utils.TabularSchema(dictList, delimiterOverride: preferredDelimiter);
+        var schema = Utils.TabularSchema(dictList, minKeyCount: 1, delimiterOverride: preferredDelimiter);
         if (schema != null)
         {
             bool shouldUseTabular = mode == "compact" ||
@@ -383,8 +450,7 @@ public class ToonSerializer
     {
         if (schema.Delimiter == ",")
         {
-            var fields = string.Join(",", schema.Keys);
-            writer.AddLine(string.Concat(GetIndent(level), "[", rows.Count.ToString(), "]{", fields, "}:"));
+            writer.AddLine(string.Concat(GetIndent(level), FormatTableHeaderBody(rows.Count, schema.Keys, schema.Delimiter)));
             WriteCommaTableRows(rows, schema.Keys, level + indent, writer);
             return;
         }
@@ -461,7 +527,7 @@ public class ToonSerializer
             dictList.Add((Dictionary<string, object?>)items[i]!);
         }
 
-        var schema = Utils.TabularSchema(dictList, delimiterOverride: preferredDelimiter);
+        var schema = Utils.TabularSchema(dictList, minKeyCount: 1, delimiterOverride: preferredDelimiter);
         if (schema != null)
         {
             bool shouldUseTabular = mode == "compact" ||
@@ -539,6 +605,10 @@ public class ToonSerializer
                     {
                         WriteListItemObject(dict, level, prefix, writer);
                     }
+                    else if (TryNormalizeList(item, out var nestedList) &&
+                             TryWriteNestedListOnHyphen(nestedList, level, prefix, writer))
+                    {
+                    }
                     else
                     {
                         writer.AddLine(prefix);
@@ -592,19 +662,46 @@ public class ToonSerializer
 
     private void WriteListItemFirstFieldOnHyphen(string keyRepr, object? value, string hyphenPrefix, int level, ToonWriter writer)
     {
+        if (TryNormalizeList(value, out var list))
+        {
+            if (list.Count == 0)
+            {
+                writer.NewLine();
+                writer.Append(hyphenPrefix);
+                writer.Append(' ');
+                writer.Append(keyRepr);
+                AppendArrayHeader(writer, 0);
+                return;
+            }
+
+            if (TryWriteArrayOfArraysOnHyphen(writer, keyRepr, list, hyphenPrefix, level))
+            {
+                return;
+            }
+
+            if (TryWriteInlineArrayOnHyphen(writer, keyRepr, list, hyphenPrefix))
+            {
+                return;
+            }
+
+            if (list[0] is Dictionary<string, object?>)
+            {
+                writer.EnsureCapacity(hyphenPrefix.Length + keyRepr.Length + 16);
+                writer.NewLine();
+                writer.Append(hyphenPrefix);
+                writer.Append(' ');
+                writer.Append(keyRepr);
+                AppendArrayHeader(writer, list.Count);
+                WriteArray(list, level + indent * 2, writer);
+                return;
+            }
+        }
+
         var inlineContainer = InlineContainerRepr(value);
         if (inlineContainer != null)
         {
             writer.AddLine(string.Concat(hyphenPrefix, " ", keyRepr, ": ", inlineContainer));
             return;
-        }
-
-        if (value is List<object?> list && list.Count > 0)
-        {
-            if (TryWriteInlineArrayOnHyphen(writer, keyRepr, list, hyphenPrefix))
-            {
-                return;
-            }
         }
 
         if (IsInline(value))
@@ -709,6 +806,185 @@ public class ToonSerializer
         return true;
     }
 
+    private static bool IsListOfArraysAllInline(List<object?> list)
+    {
+        if (list.Count == 0)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (!TryNormalizeList(list[i], out var inner))
+            {
+                return false;
+            }
+
+            for (int j = 0; j < inner.Count; j++)
+            {
+                if (!IsInlinePrimitive(inner[j]))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsInlinePrimitive(object? value)
+    {
+        if (value == null)
+        {
+            return true;
+        }
+
+        var type = value.GetType();
+        return type == typeof(string) || type == typeof(bool) || type.IsPrimitive || type == typeof(decimal);
+    }
+
+    private bool TryWriteArrayOfArraysAsListItems(
+        List<object?> list,
+        int level,
+        ToonWriter writer,
+        bool isRoot,
+        string? keyRepr = null)
+    {
+        if (!IsListOfArraysAllInline(list))
+        {
+            return false;
+        }
+
+        if (isRoot)
+        {
+            writer.AddLine(FormatKeyedArrayHeader(string.Empty, list.Count));
+            WriteArrayOfArraysHyphenItems(list, indent, writer);
+        }
+        else
+        {
+            WriteKeyedArrayHeaderLine(writer, level, keyRepr, list.Count);
+            WriteArrayOfArraysHyphenItems(list, level + indent, writer);
+        }
+
+        return true;
+    }
+
+    private void WriteArrayOfArraysHyphenItems(List<object?> list, int level, ToonWriter writer)
+    {
+        var prefix = string.Concat(GetIndent(level), "-");
+        var itemDelimiter = preferredDelimiter ?? ",";
+
+        foreach (var item in list)
+        {
+            var inner = (List<object?>)NormalizeObject(item)!;
+            writer.NewLine();
+            writer.Append(prefix);
+            writer.Append(' ');
+            AppendArrayHeader(writer, inner.Count);
+            if (inner.Count > 0)
+            {
+                writer.Append(' ');
+                for (int i = 0; i < inner.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        writer.Append(itemDelimiter);
+                    }
+
+                    Utils.AppendScalar(writer.Buffer, inner[i], itemDelimiter);
+                }
+            }
+        }
+    }
+
+    private bool TryWriteArrayOfArraysOnHyphen(
+        ToonWriter writer,
+        string keyRepr,
+        List<object?> list,
+        string hyphenPrefix,
+        int level)
+    {
+        if (!IsListOfArraysAllInline(list))
+        {
+            return false;
+        }
+
+        writer.EnsureCapacity(hyphenPrefix.Length + keyRepr.Length + 16);
+        writer.NewLine();
+        writer.Append(hyphenPrefix);
+        writer.Append(' ');
+        writer.Append(keyRepr);
+        AppendArrayHeader(writer, list.Count);
+        WriteArrayOfArraysHyphenItems(list, level + indent * 2, writer);
+        return true;
+    }
+
+    private bool TryWriteNestedListOnHyphen(List<object?> nested, int level, string hyphenPrefix, ToonWriter writer)
+    {
+        if (nested.Count == 0)
+        {
+            writer.AddLine(string.Concat(hyphenPrefix, " [0]:"));
+            return true;
+        }
+
+        if (IsListOfArraysAllInline(nested))
+        {
+            writer.AddLine(string.Concat(hyphenPrefix, " [", nested.Count.ToString(), "]:"));
+            WriteArrayOfArraysHyphenItems(nested, level + indent, writer);
+            return true;
+        }
+
+        bool allInline = true;
+        for (int i = 0; i < nested.Count; i++)
+        {
+            if (!IsInline(nested[i]))
+            {
+                allInline = false;
+                break;
+            }
+        }
+
+        if (allInline)
+        {
+            writer.EnsureCapacity(hyphenPrefix.Length + 16 + nested.Count * 8);
+            writer.NewLine();
+            writer.Append(hyphenPrefix);
+            writer.Append(' ');
+            AppendArrayHeader(writer, nested.Count);
+            writer.Append(' ');
+            var itemDelimiter = preferredDelimiter ?? ",";
+            for (int i = 0; i < nested.Count; i++)
+            {
+                if (i > 0)
+                {
+                    writer.Append(itemDelimiter);
+                }
+
+                Utils.AppendScalar(writer.Buffer, nested[i], itemDelimiter);
+            }
+
+            return true;
+        }
+
+        bool allDict = nested[0] is Dictionary<string, object?>;
+        if (!allDict)
+        {
+            return false;
+        }
+
+        for (int i = 1; i < nested.Count; i++)
+        {
+            if (nested[i] is not Dictionary<string, object?>)
+            {
+                return false;
+            }
+        }
+
+        writer.AddLine(string.Concat(hyphenPrefix, " [", nested.Count.ToString(), "]:"));
+        WriteArray(nested, level + indent, writer);
+        return true;
+    }
+
     private bool TryGetTabularListForListItem(object? value, out List<Dictionary<string, object?>> rows, out TabularSchema schema)
     {
         rows = null!;
@@ -764,9 +1040,14 @@ public class ToonSerializer
                 return;
             }
 
+            if (TryWriteArrayOfArraysAsListItems(listValue, level, writer, isRoot: false, keyRepr))
+            {
+                return;
+            }
+
             if (listValue.Count > 0)
             {
-                writer.AddLine(string.Concat(GetIndent(level), keyRepr, "[", listValue.Count.ToString(), "]:"));
+                WriteKeyedArrayHeaderLine(writer, level, keyRepr, listValue.Count);
                 WriteArray(listValue, level + indent, writer);
                 return;
             }
@@ -829,10 +1110,16 @@ public class ToonSerializer
 
     private void WriteCommaTableAsKey(string key, List<Dictionary<string, object?>> rows, TabularSchema schema, int level, ToonWriter writer)
     {
-        var fields = string.Join(",", schema.Keys);
-        var header = string.Concat(GetIndent(level), key, "[", rows.Count.ToString(), "]{", fields, "}:");
-        writer.AddLine(header);
+        writer.AddLine(string.Concat(
+            GetIndent(level),
+            key,
+            FormatTableHeaderBody(rows.Count, schema.Keys, schema.Delimiter)));
         WriteCommaTableRows(rows, schema.Keys, level + indent, writer);
+    }
+
+    private string FormatKeyedArrayHeader(string keyRepr, int count, string? delimiter = null)
+    {
+        return string.Concat(keyRepr, "[", count.ToString(), FormatArrayHeaderSuffix(delimiter ?? preferredDelimiter), "]:");
     }
 
     private static string FormatArrayHeaderSuffix(string? delimiter)
@@ -853,6 +1140,15 @@ public class ToonSerializer
         writer.Append("]:");
     }
 
+    private void WriteKeyedArrayHeaderLine(ToonWriter writer, int level, string keyRepr, int count, string? delimiter = null)
+    {
+        writer.EnsureCapacity(GetIndent(level).Length + keyRepr.Length + 12);
+        writer.NewLine();
+        writer.Append(GetIndent(level));
+        writer.Append(keyRepr);
+        AppendArrayHeader(writer, count, delimiter);
+    }
+
     private static string FormatTableHeaderBody(int rowCount, IReadOnlyList<string> keys, string delimiter)
     {
         var bracketSuffix = delimiter == "," ? "" : delimiter;
@@ -868,7 +1164,7 @@ public class ToonSerializer
                 sb.Append(delimiter);
             }
 
-            sb.Append(keys[i]);
+            sb.Append(Utils.FormatKey(keys[i]));
         }
 
         sb.Append("}:");
@@ -982,11 +1278,14 @@ public class ToonSerializer
         // For strings, IndexOf is faster than Contains for single character checks
         if (type == typeof(string))
         {
-            return ((string)value).IndexOf('\n') == -1;
+            var s = (string)value;
+            return s.IndexOf('\n') < 0 && s.IndexOf('\r') < 0;
         }
 
         return true;
     }
+
+    private string FormatScalar(object? value) => Utils.FormatScalar(value, preferredDelimiter);
 
     private string? InlineContainerRepr(object? value)
     {
@@ -1006,11 +1305,6 @@ public class ToonSerializer
         }
 
         return null;
-    }
-
-    private string FormatScalar(object? value)
-    {
-        return Utils.FormatScalar(value);
     }
 
     /// <summary>

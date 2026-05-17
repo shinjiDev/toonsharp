@@ -60,7 +60,11 @@ public class TabularSuggestion
     /// </summary>
     public static object? FromToon(string source, string mode = "strict")
     {
-        return FromToon(source, new ToonDecodeOptions { Strict = string.Equals(mode, "strict", StringComparison.OrdinalIgnoreCase) });
+        return FromToon(source, new ToonDecodeOptions
+        {
+            Strict = string.Equals(mode, "strict", StringComparison.OrdinalIgnoreCase),
+            ExpandPaths = "safe",
+        });
     }
 
     public static object? FromToon(string source, ToonDecodeOptions options)

@@ -2,4 +2,4 @@ rows[1|]{id|value}:
   1|a,b
 
 items[1|]:
- - note: "a,b"
+  - note: "a,b"

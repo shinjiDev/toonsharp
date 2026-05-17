@@ -1,11 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace ToonSharp;
 
 internal static class KeyFolding
 {
-    public static bool IsFoldableSegment(string segment) => Utils.IsSafeIdentifier(segment);
+    private static readonly Regex FoldablePathSegmentRegex =
+        new(@"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+
+    public static bool IsFoldableSegment(string segment) => FoldablePathSegmentRegex.IsMatch(segment);
 
     public static string? TryGetFoldedPath(string key, object? value, int flattenDepth, out object? leaf)
     {
@@ -46,17 +50,8 @@ internal static class KeyFolding
 
     public static HashSet<string> CollectLiteralAndFoldedKeys(Dictionary<string, object?> mapping, int flattenDepth)
     {
-        var keys = new HashSet<string>(mapping.Keys, StringComparer.Ordinal);
-        foreach (var kvp in mapping)
-        {
-            var folded = TryGetFoldedPath(kvp.Key, kvp.Value, flattenDepth, out _);
-            if (folded != null)
-            {
-                keys.Add(folded);
-            }
-        }
-
-        return keys;
+        _ = flattenDepth;
+        return new HashSet<string>(mapping.Keys, StringComparer.Ordinal);
     }
 
     public static bool WouldFoldCollide(string foldedPath, string sourceKey, HashSet<string> reservedKeys)

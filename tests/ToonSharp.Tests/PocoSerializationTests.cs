@@ -87,8 +87,7 @@ public class PocoSerializationTests
         
         var toon = Api.ToToon(person);
         
-        // Strings with spaces are quoted in TOON format
-        Assert.Contains("Name: \"John Doe\"", toon);
+        Assert.Contains("Name: John Doe", toon);
         Assert.Contains("Age: 30", toon);
         Assert.Contains("IsActive: true", toon);
     }
@@ -111,10 +110,9 @@ public class PocoSerializationTests
         
         Assert.Contains("Name: Alice", toon);
         Assert.Contains("HomeAddress:", toon);
-        // Strings with spaces are quoted in TOON format
-        Assert.Contains("Street: \"123 Main St\"", toon);
-        Assert.Contains("City: \"New York\"", toon);
-        Assert.Contains("ZipCode: 10001", toon);
+        Assert.Contains("Street: 123 Main St", toon);
+        Assert.Contains("City: New York", toon);
+        Assert.Contains("ZipCode: \"10001\"", toon);
     }
 
     [Fact]
@@ -177,8 +175,7 @@ public class PocoSerializationTests
         var toon = Api.ToToon(entity);
         
         Assert.Contains("Id: 42", toon);
-        // Strings with spaces are quoted in TOON format
-        Assert.Contains("Title: \"Amazing Product\"", toon);
+        Assert.Contains("Title: Amazing Product", toon);
         Assert.Contains("Price: 99.99", toon);
         Assert.Contains("InStock: true", toon);
         Assert.Contains("Categories[2]:", toon);

@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -50,7 +50,7 @@ public class OfficialFixturesTests
             return;
         }
 
-        var expected = ToJsonNode(testCase.GetProperty("expected"));
+        var expected = ToJsonNode(ConvertJsonElement(testCase.GetProperty("expected")));
         var actual = ToJsonNode(Api.FromToon(input, options));
         Assert.True(
             JsonNode.DeepEquals(expected, actual),
@@ -120,13 +120,13 @@ public class OfficialFixturesTests
     {
         if (!testCase.TryGetProperty("options", out var opt))
         {
-            return ToonDecodeOptions.Default;
+            return new ToonDecodeOptions { Strict = true, ExpandPaths = "off" };
         }
 
         bool strict = !opt.TryGetProperty("strict", out var strictProp) || strictProp.GetBoolean();
         string expandPaths = opt.TryGetProperty("expandPaths", out var expandProp)
-            ? expandProp.GetString() ?? "safe"
-            : "safe";
+            ? expandProp.GetString() ?? "off"
+            : "off";
 
         return new ToonDecodeOptions
         {
@@ -140,6 +140,11 @@ public class OfficialFixturesTests
 
     private static JsonNode ToJsonNode(object? graph)
     {
+        if (graph is null)
+        {
+            return JsonSerializer.Deserialize<JsonNode>("null")!;
+        }
+
         var json = JsonSerializer.Serialize(graph);
         return JsonNode.Parse(json) ?? throw new InvalidOperationException("Invalid graph.");
     }

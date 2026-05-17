@@ -54,8 +54,8 @@ public class SerializerTests
         };
 
         var result = new ToonSerializer().Dumps(data);
-        Assert.Contains("rows[1|]{id|value}:", result);
-        Assert.Contains("1|a,b", result);
+        Assert.Contains("rows[1]{id,value}:", result);
+        Assert.Contains("\"a,b\"", result);
     }
 
     [Fact]

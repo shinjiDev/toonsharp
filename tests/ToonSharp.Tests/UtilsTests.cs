@@ -61,8 +61,8 @@ public class UtilsTests
     public void FormatScalar_String()
     {
         Assert.Equal("hello", Utils.FormatScalar("hello"));
-        var quoted = Utils.FormatScalar("hello world");
-        Assert.StartsWith("\"", quoted);
+        Assert.Equal("hello world", Utils.FormatScalar("hello world"));
+        Assert.StartsWith("\"", Utils.FormatScalar("a:b"));
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class UtilsTests
     public void GuessNumber_Float()
     {
         Assert.Equal(3.14, Utils.GuessNumber("3.14"));
-        Assert.Equal(1e5, Utils.GuessNumber("1e5"));
+        Assert.Equal(100000L, Utils.GuessNumber("1e5"));
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class UtilsTests
     }
 
     [Fact]
-    public void ChooseTableDelimiter_uses_pipe_when_values_contain_comma()
+    public void ChooseTableDelimiter_uses_comma_and_quotes_values_with_comma()
     {
         var keys = new List<string> { "id", "value" };
         var rows = new List<Dictionary<string, object?>>
@@ -95,7 +95,8 @@ public class UtilsTests
             new() { ["id"] = "1", ["value"] = "a,b" },
         };
 
-        Assert.Equal("|", Utils.ChooseTableDelimiter(keys, rows));
+        Assert.Equal(",", Utils.ChooseTableDelimiter(keys, rows));
+        Assert.Equal("\"a,b\"", Utils.FormatTableCell("a,b", ","));
     }
 
     [Fact]

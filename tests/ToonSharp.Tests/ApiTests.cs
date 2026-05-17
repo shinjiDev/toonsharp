@@ -46,7 +46,7 @@ age: 16";
     [Fact]
     public void ValidateToon_Invalid()
     {
-        var toon = "invalid syntax without colon";
+        var toon = "hello\nworld";
         var (isValid, errors) = Api.ValidateToon(toon);
         
         Assert.False(isValid);

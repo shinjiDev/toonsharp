@@ -66,9 +66,9 @@ public class ToonLexer
         // Strip inline comment using Span
         var stripped = StripInlineCommentSpan(raw);
 
-        // Early exit for empty lines
         if (stripped.IsEmpty)
         {
+            lines.Add(new Line(0, string.Empty, lineNumber));
             return;
         }
 
@@ -105,9 +105,9 @@ public class ToonLexer
             }
         }
 
-        // If only spaces, exit
         if (firstNonSpace == -1)
         {
+            lines.Add(new Line(indent, string.Empty, lineNumber));
             return;
         }
 
@@ -309,6 +309,7 @@ public class ToonParser
 {
     private readonly string mode;
     private readonly bool expandPathsSafe;
+    private readonly int indentStep;
     private List<Line> lines = new();
     private int currentIndex = 0;
     private int? cachedIndentSize;
@@ -324,6 +325,7 @@ public class ToonParser
     {
         mode = options.ParserMode;
         expandPathsSafe = options.ExpandPathsSafe;
+        indentStep = options.Indent > 0 ? options.Indent : 2;
     }
 
     public object? Parse(string source)
@@ -334,12 +336,37 @@ public class ToonParser
 
         if (lines.Count == 0)
         {
-            return null;
+            return new Dictionary<string, object?>();
         }
 
-        // Always start by parsing as a value (which can be object, array, or scalar)
-        // The value parser will handle tables correctly
-        return ParseValue(0);
+        while (currentIndex < lines.Count && string.IsNullOrWhiteSpace(lines[currentIndex].Content))
+        {
+            currentIndex++;
+        }
+
+        if (currentIndex >= lines.Count)
+        {
+            return new Dictionary<string, object?>();
+        }
+
+        var value = ParseValue(0);
+        if (mode == "strict")
+        {
+            while (currentIndex < lines.Count)
+            {
+                var trailing = lines[currentIndex];
+                if (trailing.Indent == 0 && !string.IsNullOrWhiteSpace(trailing.Content))
+                {
+                    throw new ToonSyntaxError(
+                        "Multiple root values are not allowed in strict mode",
+                        trailing.LineNo);
+                }
+
+                currentIndex++;
+            }
+        }
+
+        return value;
     }
 
     private object? ParseValue(int expectedIndent)
@@ -351,6 +378,7 @@ public class ToonParser
         }
 
         var line = lines[currentIndex];
+        ValidateLineIndent(line);
 
         // Optimization 2: Simplified indent comparisons
         var indentDiff = line.Indent - expectedIndent;
@@ -372,8 +400,9 @@ public class ToonParser
         // Optimization 4: Check first character first (most common case)
         char firstChar = contentSpan[0];
 
-        // Check for array item (very common case)
-        if (firstChar == '-')
+        // List items use "- " or "-["; bare "-" followed by a digit is a negative scalar
+        if (firstChar == '-' &&
+            (contentSpan.Length == 1 || contentSpan[1] == ' ' || contentSpan[1] == '['))
         {
             return ParseArray(expectedIndent);
         }
@@ -383,12 +412,22 @@ public class ToonParser
 
         if (colonIndex >= 0)
         {
-            // It's a key-value pair or table
+            if (contentSpan.TrimStart().StartsWith("["))
+            {
+                return ParseBracketHeaderLine(line, expectedIndent);
+            }
+
+            if (IsQuotedJsonScalarLine(contentSpan))
+            {
+                currentIndex++;
+                return ParseScalarSpan(contentSpan);
+            }
+
             return ParseObject(expectedIndent);
         }
 
-        // Strict mode verification
-        if (mode == "strict" && LooksLikeMissingColonSpan(contentSpan))
+        // Strict mode: bare identifier lines are only valid as object keys, not root scalars
+        if (mode == "strict" && expectedIndent > 0 && LooksLikeMissingColonSpan(contentSpan))
         {
             throw new ToonSyntaxError(
                 $"Expected ':' after key-like token: {contentSpan.Trim().ToString()}",
@@ -401,6 +440,52 @@ public class ToonParser
         return scalar;
     }
 
+    private object? ParseBracketHeaderLine(Line line, int expectedIndent)
+    {
+        var content = line.Content;
+        currentIndex++;
+
+        var tableHeader = ParseTableHeader(content);
+        if (tableHeader != null)
+        {
+            var (rows, nextIndex) = ParseTableFromHeader(
+                currentIndex - 1,
+                tableHeader.Fields,
+                tableHeader.Count,
+                tableHeader.Delimiter,
+                expectedIndent);
+            currentIndex = nextIndex;
+            return rows;
+        }
+
+        var colonIndex = content.IndexOf(':');
+        if (colonIndex < 0)
+        {
+            throw new ToonSyntaxError($"Invalid array header: {content}", line.LineNo);
+        }
+
+        var headerPart = content.Substring(0, colonIndex).Trim();
+        var valuePart = colonIndex < content.Length - 1 ? content.Substring(colonIndex + 1) : string.Empty;
+
+        if (!TryParseBracketArrayHeader(headerPart, out var count, out var delimiter))
+        {
+            throw new ToonSyntaxError($"Invalid array header: {headerPart}", line.LineNo);
+        }
+
+        if (!string.IsNullOrWhiteSpace(valuePart))
+        {
+            return ParseInlineArrayValues(valuePart, count, line.LineNo, delimiter);
+        }
+
+        var listIndent = expectedIndent + DetectIndentSize();
+        if (currentIndex >= lines.Count || lines[currentIndex].Indent < listIndent)
+        {
+            return new List<object?>();
+        }
+
+        return ParseArray(listIndent);
+    }
+
     private Dictionary<string, object?> ParseObject(int expectedIndent)
     {
         var result = new Dictionary<string, object?>();
@@ -409,6 +494,12 @@ public class ToonParser
         while (currentIndex < lines.Count)
         {
             var line = lines[currentIndex];
+            if (string.IsNullOrWhiteSpace(line.Content))
+            {
+                currentIndex++;
+                continue;
+            }
+
             if (line.Indent < baseIndent)
             {
                 break;
@@ -433,11 +524,19 @@ public class ToonParser
 
             if (!line.Content.Contains(":"))
             {
-                // Not a key-value pair, might be an error in strict mode
                 if (mode == "strict")
                 {
+                    var trimmed = line.Content.Trim();
+                    if (FoldableSegmentRegex.IsMatch(trimmed))
+                    {
+                        throw new ToonSyntaxError(
+                            $"Expected ':' after key-like token: {trimmed}",
+                            line.LineNo);
+                    }
+
                     throw new ToonSyntaxError($"Expected key-value pair, got: {line.Content}", line.LineNo);
                 }
+
                 break;
             }
 
@@ -453,10 +552,19 @@ public class ToonParser
             }
 
             var (keyToken, valueStr) = tokenResult.Value;
-            var key = keyToken.Clean;
-            InlineArrayInfo? inlineArray = !keyToken.WasQuoted ? TryParseInlineArrayKey(key) : null;
+            if (!TryParseKeyHeader(keyToken.Raw, out var key, out var literalQuotedKey, out var inlineArray))
+            {
+                if (mode == "strict")
+                {
+                    throw new ToonSyntaxError($"Invalid key syntax: {keyToken.Raw}", line.LineNo);
+                }
+
+                currentIndex++;
+                continue;
+            }
+
             var targetKey = inlineArray?.BaseKey ?? key;
-            var allowPathExpansion = expandPathsSafe && !keyToken.WasQuoted;
+            var allowPathExpansion = expandPathsSafe && !literalQuotedKey;
             var treatAsInlineArray = inlineArray.HasValue && (!string.IsNullOrWhiteSpace(valueStr) || inlineArray.Value.Count == 0);
 
             currentIndex++;
@@ -464,13 +572,22 @@ public class ToonParser
 
             if (treatAsInlineArray)
             {
-                value = ParseInlineArrayValues(valueStr, inlineArray!.Value.Count, line.LineNo);
+                value = ParseInlineArrayValues(valueStr, inlineArray!.Value.Count, line.LineNo, inlineArray.Value.Delimiter);
             }
-            // Check if next line is indented (block value)
-            else if (currentIndex < lines.Count && lines[currentIndex].Indent > baseIndent)
+            // Block value only when the header line has no inline value
+            else if (string.IsNullOrWhiteSpace(valueStr) &&
+                     currentIndex < lines.Count &&
+                     lines[currentIndex].Indent > baseIndent)
             {
                 var childIndent = lines[currentIndex].Indent;
                 value = ParseValue(childIndent);
+                if (inlineArray.HasValue && value is List<object?> blockList &&
+                    blockList.Count != inlineArray.Value.Count)
+                {
+                    throw new ToonSyntaxError(
+                        $"Array header declares {inlineArray.Value.Count} items, but found {blockList.Count}",
+                        line.LineNo);
+                }
             }
             else if (!string.IsNullOrWhiteSpace(valueStr))
             {
@@ -478,12 +595,7 @@ public class ToonParser
             }
             else
             {
-                // Empty value after colon - might be an error
-                if (mode == "strict" && currentIndex >= lines.Count)
-                {
-                    throw new ToonSyntaxError($"Missing value for key: {key}", line.LineNo);
-                }
-                value = null;
+                value = new Dictionary<string, object?>();
             }
 
             AssignValue(result, targetKey, value, allowPathExpansion, line.LineNo);
@@ -500,6 +612,23 @@ public class ToonParser
         while (currentIndex < lines.Count)
         {
             var line = lines[currentIndex];
+
+            if (string.IsNullOrWhiteSpace(line.Content))
+            {
+                if (mode == "strict")
+                {
+                    if (line.Indent < baseIndent)
+                    {
+                        break;
+                    }
+
+                    throw new ToonSyntaxError("Blank lines are not allowed inside arrays", line.LineNo, 1);
+                }
+
+                currentIndex++;
+                continue;
+            }
+
             if (line.Indent < baseIndent)
             {
                 break;
@@ -526,6 +655,14 @@ public class ToonParser
                 if (tableHeader != null && content.IndexOf('{') >= 0)
                 {
                     value = ParseListItemWithTabularFirstField(tableHeader, baseIndent, headerLineIndex);
+                }
+                else if (TryParseHyphenNestedArrayHeader(content, baseIndent, out var nestedList))
+                {
+                    value = nestedList;
+                }
+                else if (TryParseBracketOnlyInlineArrayLine(content, line.LineNo, out var bracketOnlyList))
+                {
+                    value = bracketOnlyList;
                 }
                 else if (content.Contains(':'))
                 {
@@ -576,10 +713,13 @@ public class ToonParser
         }
 
         var (keyToken, valueStr) = tokenResult.Value;
-        var key = keyToken.Clean;
-        InlineArrayInfo? inlineArray = !keyToken.WasQuoted ? TryParseInlineArrayKey(key) : null;
+        if (!TryParseKeyHeader(keyToken.Raw, out var key, out var literalQuotedKey, out var inlineArray))
+        {
+            return new Dictionary<string, object?>();
+        }
+
         var targetKey = inlineArray?.BaseKey ?? key;
-        var allowPathExpansion = expandPathsSafe && !keyToken.WasQuoted;
+        var allowPathExpansion = expandPathsSafe && !literalQuotedKey;
         var treatAsInlineArray = inlineArray.HasValue &&
                                  (!string.IsNullOrWhiteSpace(valueStr) || inlineArray.Value.Count == 0);
 
@@ -590,7 +730,7 @@ public class ToonParser
 
         if (treatAsInlineArray)
         {
-            firstValue = ParseInlineArrayValues(valueStr, inlineArray!.Value.Count, hyphenLineNo);
+            firstValue = ParseInlineArrayValues(valueStr, inlineArray!.Value.Count, hyphenLineNo, inlineArray.Value.Delimiter);
         }
         else if (currentIndex < lines.Count && lines[currentIndex].Indent > baseIndent + DetectIndentSize())
         {
@@ -644,10 +784,14 @@ public class ToonParser
             }
 
             var (keyToken, valueStr) = tokenResult.Value;
-            var key = keyToken.Clean;
-            InlineArrayInfo? inlineArray = !keyToken.WasQuoted ? TryParseInlineArrayKey(key) : null;
+            if (!TryParseKeyHeader(keyToken.Raw, out var key, out var literalQuotedKey, out var inlineArray))
+            {
+                currentIndex++;
+                continue;
+            }
+
             var targetKey = inlineArray?.BaseKey ?? key;
-            var allowPathExpansion = expandPathsSafe && !keyToken.WasQuoted;
+            var allowPathExpansion = expandPathsSafe && !literalQuotedKey;
             var treatAsInlineArray = inlineArray.HasValue &&
                                      (!string.IsNullOrWhiteSpace(valueStr) || inlineArray.Value.Count == 0);
 
@@ -656,7 +800,7 @@ public class ToonParser
 
             if (treatAsInlineArray)
             {
-                value = ParseInlineArrayValues(valueStr, inlineArray!.Value.Count, line.LineNo);
+                value = ParseInlineArrayValues(valueStr, inlineArray!.Value.Count, line.LineNo, inlineArray.Value.Delimiter);
             }
             else if (currentIndex < lines.Count && lines[currentIndex].Indent > fieldIndent)
             {
@@ -694,8 +838,24 @@ public class ToonParser
             gcd = gcd == 0 ? indent : Gcd(gcd, indent);
         }
 
-        cachedIndentSize = gcd > 0 ? gcd : 2;
+        cachedIndentSize = gcd > 0 ? gcd : indentStep;
         return cachedIndentSize.Value;
+    }
+
+    private void ValidateLineIndent(Line line)
+    {
+        if (mode != "strict" || line.Indent <= 0 || string.IsNullOrWhiteSpace(line.Content))
+        {
+            return;
+        }
+
+        int step = indentStep;
+        if (line.Indent % step != 0)
+        {
+            throw new ToonSyntaxError(
+                $"Indentation must be a multiple of {step} spaces",
+                line.LineNo);
+        }
     }
 
     private static int Gcd(int a, int b)
@@ -728,26 +888,28 @@ public class ToonParser
         }
 
         var rawKey = content.Substring(0, bracketStart).Trim();
-        if (string.IsNullOrEmpty(rawKey))
+        if (!TryParseKeyHeader(rawKey, out var cleanKey, out var wasQuoted, out _))
+        {
+            cleanKey = string.IsNullOrEmpty(rawKey) ? string.Empty : UnquoteKey(rawKey);
+            wasQuoted = rawKey.Length >= 2 && rawKey.StartsWith('"') && rawKey.EndsWith('"');
+        }
+
+        var bracketSegment = content.Substring(bracketStart + 1, bracketEnd - bracketStart - 1).AsSpan();
+        if (!TryParseCountAndDelimiter(bracketSegment, out var count, out var delimiter))
         {
             return null;
         }
-
-        var wasQuoted = rawKey.Length >= 2 && rawKey.StartsWith('"') && rawKey.EndsWith('"');
-        var cleanKey = UnquoteKey(rawKey);
-
-        var bracketSegment = content.Substring(bracketStart + 1, bracketEnd - bracketStart - 1);
-        var digitPart = new string(bracketSegment.TakeWhile(char.IsDigit).ToArray());
-        if (string.IsNullOrEmpty(digitPart) || !int.TryParse(digitPart, out var count))
-        {
-            return null;
-        }
-
-        var delimiterPart = bracketSegment.Substring(digitPart.Length);
-        var delimiter = string.IsNullOrEmpty(delimiterPart) ? DefaultTableDelimiter : delimiterPart;
 
         var fieldsSegment = content.Substring(braceStart + 1, braceEnd - braceStart - 1);
+        if (mode == "strict" && delimiter != DefaultTableDelimiter && fieldsSegment.Contains(','))
+        {
+            throw new ToonSyntaxError(
+                "Delimiter mismatch between array header and tabular field list",
+                0);
+        }
+
         var fields = SplitEscapedRow(fieldsSegment, delimiter)
+            .Select(UnquoteFieldName)
             .Where(f => !string.IsNullOrWhiteSpace(f))
             .ToList();
 
@@ -780,6 +942,23 @@ public class ToonParser
         while (index < lines.Count)
         {
             var line = lines[index];
+
+            if (string.IsNullOrWhiteSpace(line.Content))
+            {
+                if (mode == "strict")
+                {
+                    if (line.Indent < rowIndent)
+                    {
+                        break;
+                    }
+
+                    throw new ToonSyntaxError("Blank lines are not allowed inside arrays", line.LineNo, 1);
+                }
+
+                index++;
+                continue;
+            }
+
             if (line.Indent <= headerIndent)
             {
                 break;
@@ -1020,6 +1199,17 @@ public class ToonParser
         return result;
     }
 
+    private static string UnquoteFieldName(string field)
+    {
+        var trimmed = field.Trim();
+        if (trimmed.Length >= 2 && trimmed.StartsWith('"') && trimmed.EndsWith('"'))
+        {
+            return UnquoteKey(trimmed);
+        }
+
+        return trimmed;
+    }
+
     private static void AddTrimmedToken(List<string> result, StringBuilder current)
     {
         if (current.Length == 0)
@@ -1057,7 +1247,7 @@ public class ToonParser
 
     private (KeyToken token, string? value)? SplitKeyValueToken(string line)
     {
-        int colonIndex = line.IndexOf(':');
+        int colonIndex = IndexOfKeyValueColon(line.AsSpan());
         if (colonIndex < 0)
         {
             return null;
@@ -1085,28 +1275,230 @@ public class ToonParser
         }
 
         var keySpan = key.AsSpan();
+        var baseKeySpan = keySpan.Slice(0, bracketIndex).TrimEnd();
+        if (bracketIndex > 0 && baseKeySpan.IsEmpty)
+        {
+            return null;
+        }
+
         var countSegment = keySpan.Slice(bracketIndex + 1, keySpan.Length - bracketIndex - 2);
+        if (!TryParseCountAndDelimiter(countSegment, out var count, out var delimiter))
+        {
+            return null;
+        }
+
+        var baseKey = bracketIndex == 0 ? string.Empty : baseKeySpan.ToString();
+        if (baseKey.Contains('['))
+        {
+            return null;
+        }
+
+        return new InlineArrayInfo(baseKey, count, delimiter);
+    }
+
+    private static int IndexOfKeyValueColon(ReadOnlySpan<char> line)
+    {
+        bool inQuotes = false;
+        bool escape = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            char ch = line[i];
+            if (inQuotes)
+            {
+                if (escape)
+                {
+                    escape = false;
+                    continue;
+                }
+
+                if (ch == '\\')
+                {
+                    escape = true;
+                    continue;
+                }
+
+                if (ch == '"')
+                {
+                    inQuotes = false;
+                }
+
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                inQuotes = true;
+                continue;
+            }
+
+            if (ch == ':')
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int FindEndOfJsonString(string text, int startIndex)
+    {
+        if (startIndex >= text.Length || text[startIndex] != '"')
+        {
+            return -1;
+        }
+
+        for (int i = startIndex + 1; i < text.Length; i++)
+        {
+            char ch = text[i];
+            if (ch == '\\')
+            {
+                if (i + 1 >= text.Length)
+                {
+                    return -1;
+                }
+
+                i++;
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private bool TryParseKeyHeader(
+        string rawKey,
+        out string cleanKey,
+        out bool isLiteralQuotedKey,
+        out InlineArrayInfo? inlineArray)
+    {
+        cleanKey = rawKey;
+        isLiteralQuotedKey = false;
+        inlineArray = null;
+        rawKey = rawKey.TrimEnd();
+
+        if (rawKey.StartsWith('"'))
+        {
+            int end = FindEndOfJsonString(rawKey, 0);
+            if (end < 0)
+            {
+                return false;
+            }
+
+            cleanKey = DecodeJsonStringLiteral(rawKey.AsSpan(0, end + 1));
+            isLiteralQuotedKey = true;
+            var rest = rawKey.Substring(end + 1).TrimStart();
+            if (rest.StartsWith('[') &&
+                TryParseBracketArrayHeader(rest, out var count, out var delimiter))
+            {
+                inlineArray = new InlineArrayInfo(cleanKey, count, delimiter);
+            }
+
+            return true;
+        }
+
+        inlineArray = TryParseInlineArrayKey(rawKey);
+        cleanKey = inlineArray?.BaseKey ?? UnquoteKey(rawKey);
+        return true;
+    }
+
+    private static bool TryParseCountAndDelimiter(ReadOnlySpan<char> segment, out int count, out string delimiter)
+    {
+        count = 0;
+        delimiter = DefaultTableDelimiter;
         int digitLength = 0;
-        while (digitLength < countSegment.Length && char.IsDigit(countSegment[digitLength]))
+        while (digitLength < segment.Length && char.IsDigit(segment[digitLength]))
         {
             digitLength++;
         }
 
-        if (digitLength == 0 || !int.TryParse(countSegment.Slice(0, digitLength), out var count))
+        if (digitLength == 0 || !int.TryParse(segment.Slice(0, digitLength), out count))
         {
-            return null;
+            return false;
         }
 
-        var baseKey = keySpan.Slice(0, bracketIndex).TrimEnd().ToString();
-        if (string.IsNullOrWhiteSpace(baseKey))
-        {
-            return null;
-        }
-
-        return new InlineArrayInfo(baseKey, count);
+        var delimiterPart = segment.Slice(digitLength);
+        delimiter = delimiterPart.IsEmpty ? DefaultTableDelimiter : delimiterPart.ToString();
+        return true;
     }
 
-    private List<object?> ParseInlineArrayValues(string? valueSegment, int expectedCount, int lineNo)
+    private bool TryParseHyphenNestedArrayHeader(string content, int baseIndent, out object? value)
+    {
+        value = null;
+        content = content.Trim();
+        if (!content.EndsWith(':'))
+        {
+            return false;
+        }
+
+        var headerPart = content.Substring(0, content.Length - 1).Trim();
+        if (!TryParseBracketArrayHeader(headerPart, out var count, out _))
+        {
+            return false;
+        }
+
+        var listIndent = baseIndent + DetectIndentSize();
+        if (currentIndex < lines.Count && lines[currentIndex].Indent >= listIndent)
+        {
+            value = ParseArray(listIndent);
+        }
+        else
+        {
+            value = new List<object?>();
+        }
+
+        return true;
+    }
+
+    private bool TryParseBracketOnlyInlineArrayLine(string content, int lineNo, out List<object?> list)
+    {
+        content = content.Trim();
+        if (!content.StartsWith('['))
+        {
+            list = null!;
+            return false;
+        }
+
+        int colonIndex = content.IndexOf(':');
+        if (colonIndex < 0)
+        {
+            list = null!;
+            return false;
+        }
+
+        var header = content.Substring(0, colonIndex).Trim();
+        if (!TryParseBracketArrayHeader(header, out var count, out var delimiter))
+        {
+            list = null!;
+            return false;
+        }
+
+        var valueSegment = colonIndex < content.Length - 1 ? content.Substring(colonIndex + 1) : null;
+        list = ParseInlineArrayValues(valueSegment, count, lineNo, delimiter);
+        return true;
+    }
+
+    private static bool TryParseBracketArrayHeader(string header, out int count, out string delimiter)
+    {
+        count = 0;
+        delimiter = DefaultTableDelimiter;
+        if (header.Length < 2 || header[0] != '[' || header[^1] != ']')
+        {
+            return false;
+        }
+
+        return TryParseCountAndDelimiter(header.AsSpan(1, header.Length - 2), out count, out delimiter);
+    }
+
+    private List<object?> ParseInlineArrayValues(
+        string? valueSegment,
+        int expectedCount,
+        int lineNo,
+        string delimiter = DefaultTableDelimiter)
     {
         var result = new List<object?>(expectedCount);
 
@@ -1123,12 +1515,19 @@ public class ToonParser
         }
 
         var span = valueSegment.AsSpan().Trim();
-        if (TryParseCommaSeparatedJsonStrings(span, expectedCount, lineNo, result))
+        if (delimiter == DefaultTableDelimiter &&
+            TryParseCommaSeparatedJsonStrings(span, expectedCount, lineNo, result))
         {
             return result;
         }
 
-        ParseDelimitedScalarsInto(span, DefaultTableDelimiter, expectedCount, lineNo, result);
+        if (delimiter == DefaultTableDelimiter &&
+            TryParseUnquotedCommaDelimitedScalars(span, expectedCount, result))
+        {
+            return result;
+        }
+
+        ParseDelimitedScalarsInto(span, delimiter, expectedCount, lineNo, result);
         return result;
     }
 
@@ -1187,12 +1586,21 @@ public class ToonParser
 
             if (found + 1 < expectedCount)
             {
+                while (pos < line.Length && line[pos] == ' ')
+                {
+                    pos++;
+                }
+
                 if (pos >= line.Length || line[pos] != ',')
                 {
                     return false;
                 }
 
                 pos++;
+                while (pos < line.Length && line[pos] == ' ')
+                {
+                    pos++;
+                }
             }
         }
 
@@ -1204,6 +1612,47 @@ public class ToonParser
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Fast path for comma-separated inline scalars with no quotes (e.g. Item 1,Item 2 or 42,-1E+03,1.5).
+    /// </summary>
+    private bool TryParseUnquotedCommaDelimitedScalars(
+        ReadOnlySpan<char> line,
+        int expectedCount,
+        List<object?> destination)
+    {
+        if (line.IsEmpty)
+        {
+            return expectedCount == 0;
+        }
+
+        if (line.IndexOf('"') >= 0 || line.IndexOf('\\') >= 0)
+        {
+            return false;
+        }
+
+        int found = 0;
+        int start = 0;
+
+        for (int i = 0; i <= line.Length; i++)
+        {
+            if (i < line.Length && line[i] != ',')
+            {
+                continue;
+            }
+
+            if (found >= expectedCount)
+            {
+                return false;
+            }
+
+            AddInlineScalarToken(line.Slice(start, i - start), destination);
+            found++;
+            start = i + 1;
+        }
+
+        return found == expectedCount;
     }
 
     private static string DecodeJsonStringLiteral(ReadOnlySpan<char> quoted)
@@ -1223,9 +1672,9 @@ public class ToonParser
         {
             return JsonSerializer.Deserialize<string>(quoted.ToString()) ?? quoted.ToString();
         }
-        catch
+        catch (JsonException ex)
         {
-            return quoted.ToString();
+            throw new ToonSyntaxError($"Invalid quoted string: {ex.Message}", 0);
         }
     }
 
@@ -1238,6 +1687,12 @@ public class ToonParser
     {
         if (separator == DefaultTableDelimiter &&
             TryParseCommaSeparatedJsonStrings(line, expectedCount, lineNo, destination))
+        {
+            return;
+        }
+
+        if (separator == DefaultTableDelimiter &&
+            TryParseUnquotedCommaDelimitedScalars(line, expectedCount, destination))
         {
             return;
         }
@@ -1312,7 +1767,7 @@ public class ToonParser
     {
         if (token.IsEmpty)
         {
-            destination.Add(null);
+            destination.Add(string.Empty);
             return;
         }
 
@@ -1330,7 +1785,7 @@ public class ToonParser
 
         if (start > end)
         {
-            destination.Add(null);
+            destination.Add(string.Empty);
             return;
         }
 
@@ -1341,6 +1796,17 @@ public class ToonParser
     {
         if (!allowPathExpansion || !key.Contains('.'))
         {
+            if (target.TryGetValue(key, out var existing) && existing != null && value != null)
+            {
+                var existingIsDict = existing is Dictionary<string, object?>;
+                var valueIsDict = value is Dictionary<string, object?>;
+                if (existingIsDict != valueIsDict &&
+                    string.Equals(mode, "strict", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new ToonSyntaxError($"Key '{key}' conflicts with existing value", lineNo);
+                }
+            }
+
             target[key] = value;
             return;
         }
@@ -1371,7 +1837,22 @@ public class ToonParser
         for (int i = 0; i < segments.Count - 1; i++)
         {
             var segment = segments[i];
-            EnsureFoldableSegment(segment, lineNo);
+            if (!FoldableSegmentRegex.IsMatch(segment))
+            {
+                if (i == 0)
+                {
+                    target[key] = value;
+                    return;
+                }
+
+                if (string.Equals(mode, "strict", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new ToonSyntaxError($"Invalid path segment '{segment}' for path expansion", lineNo);
+                }
+
+                target[key] = value;
+                return;
+            }
 
             if (!current.TryGetValue(segment, out var existing))
             {
@@ -1396,7 +1877,22 @@ public class ToonParser
         }
 
         var finalSegment = segments[^1];
-        EnsureFoldableSegment(finalSegment, lineNo);
+        if (!FoldableSegmentRegex.IsMatch(finalSegment))
+        {
+            if (segments.Count == 1)
+            {
+                target[key] = value;
+                return;
+            }
+
+            if (string.Equals(mode, "strict", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ToonSyntaxError($"Invalid path segment '{finalSegment}' for path expansion", lineNo);
+            }
+
+            target[key] = value;
+            return;
+        }
         if (current.TryGetValue(finalSegment, out var existingFinal) &&
             existingFinal is Dictionary<string, object?> &&
             value is not Dictionary<string, object?>)
@@ -1444,6 +1940,23 @@ public class ToonParser
         return FoldableSegmentRegex.IsMatch(candidateKey);
     }
 
+    private static bool IsQuotedJsonScalarLine(ReadOnlySpan<char> content)
+    {
+        var trimmed = content.Trim();
+        if (trimmed.IsEmpty || trimmed[0] != '"')
+        {
+            return false;
+        }
+
+        int end = FindEndOfJsonString(trimmed.ToString(), 0);
+        if (end < 0)
+        {
+            return false;
+        }
+
+        return trimmed.Slice(end + 1).Trim().IsEmpty;
+    }
+
     // Span version of LooksLikeMissingColon (more efficient)
     private static bool LooksLikeMissingColonSpan(ReadOnlySpan<char> content)
     {
@@ -1474,7 +1987,17 @@ public class ToonParser
 
         if (separatorIndex <= 0)
         {
-            return false;
+            if (trimmed.IndexOf(':') >= 0)
+            {
+                return false;
+            }
+
+            if (trimmed.SequenceEqual("true") || trimmed.SequenceEqual("false") || trimmed.SequenceEqual("null"))
+            {
+                return false;
+            }
+
+            return FoldableSegmentRegex.IsMatch(trimmed.ToString());
         }
 
         // Get candidate key (part before separator)
@@ -1526,14 +2049,16 @@ public class ToonParser
 
     private readonly struct InlineArrayInfo
     {
-        public InlineArrayInfo(string baseKey, int count)
+        public InlineArrayInfo(string baseKey, int count, string delimiter)
         {
             BaseKey = baseKey;
             Count = count;
+            Delimiter = delimiter;
         }
 
         public string BaseKey { get; }
         public int Count { get; }
+        public string Delimiter { get; }
     }
 
     private readonly struct KeyToken
@@ -1550,12 +2075,13 @@ public class ToonParser
         public bool WasQuoted { get; }
     }
 
-    private string UnquoteKey(string key)
+    private static string UnquoteKey(string key)
     {
-        if (key.StartsWith('"') && key.EndsWith('"'))
+        if (key.Length >= 2 && key.StartsWith('"') && key.EndsWith('"'))
         {
-            return JsonSerializer.Deserialize<string>(key) ?? key;
+            return DecodeJsonStringLiteral(key.AsSpan());
         }
+
         return key;
     }
 
@@ -1586,14 +2112,30 @@ public class ToonParser
         if (content.SequenceEqual("null"))
             return null;
 
-        // Check for quoted strings
-        if (content.Length >= 2 && content[0] == '"' && content[^1] == '"')
+        if (content.Length > 0 && content[0] == '"')
         {
-            return DecodeJsonStringLiteral(content);
+            if (content.Length < 2 || content[^1] != '"')
+            {
+                throw new ToonSyntaxError("Unterminated string", 0);
+            }
+
+            try
+            {
+                return DecodeJsonStringLiteral(content);
+            }
+            catch (JsonException ex)
+            {
+                throw new ToonSyntaxError($"Invalid quoted string: {ex.Message}", 0);
+            }
         }
 
         // For numbers, use the optimized Span version
         var number = Utils.GuessNumber(content);
+        if (number is double d)
+        {
+            return Utils.NormalizeNumericValue(d);
+        }
+
         if (number != null)
         {
             return number;

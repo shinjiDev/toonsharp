@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
@@ -29,6 +30,11 @@ public class TabularSchema
 /// </summary>
 public static class Utils
 {
+    private static readonly JsonSerializerOptions QuotedJsonOptions = new()
+    {
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     private static readonly Regex SafeIdentifierRegex = new(@"^[A-Za-z_][A-Za-z0-9_\-]*$", RegexOptions.Compiled);
     private static readonly Regex NumberRegex = new(@"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$", RegexOptions.Compiled);
 
@@ -43,19 +49,43 @@ public static class Utils
     /// <summary>
     /// Format a key for TOON output, quoting if necessary.
     /// </summary>
+    public static bool IsDotSeparatedFoldableKey(string key)
+    {
+        if (string.IsNullOrEmpty(key) || key.IndexOf('.') < 0)
+        {
+            return false;
+        }
+
+        foreach (var segment in key.Split('.'))
+        {
+            if (!KeyFolding.IsFoldableSegment(segment))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static string FormatKey(string key)
     {
-        if (IsSafeIdentifier(key))
+        if (IsDotSeparatedFoldableKey(key))
         {
             return key;
         }
-        return JsonSerializer.Serialize(key);
+
+        if (IsSafeIdentifier(key) && !key.Contains('-'))
+        {
+            return key;
+        }
+
+        return JsonSerializer.Serialize(key, QuotedJsonOptions);
     }
 
     /// <summary>
     /// Format a scalar value for TOON output.
     /// </summary>
-    public static string FormatScalar(object? value)
+    public static string FormatScalar(object? value, string? activeTableDelimiter = null)
     {
         if (value == null)
         {
@@ -69,11 +99,47 @@ public static class Utils
 
         if (value is string str)
         {
-            if (StringNeedsQuotes(str))
+            if (StringNeedsQuotes(str, activeTableDelimiter))
             {
-                return JsonSerializer.Serialize(str);
+                return JsonSerializer.Serialize(str, QuotedJsonOptions);
             }
             return str;
+        }
+
+        if (value is bool)
+        {
+            return (bool)value ? "true" : "false";
+        }
+
+        if (value is double d)
+        {
+            var sb = new StringBuilder(32);
+            AppendNumber(sb, d);
+            return sb.ToString();
+        }
+
+        if (value is float f)
+        {
+            var sb = new StringBuilder(32);
+            AppendNumber(sb, f);
+            return sb.ToString();
+        }
+
+        if (value is decimal dec)
+        {
+            var sb = new StringBuilder(32);
+            AppendNumber(sb, (double)dec);
+            return sb.ToString();
+        }
+
+        if (value is long l)
+        {
+            return l.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (value is int i)
+        {
+            return i.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         if (value is System.Text.Json.JsonElement jsonElement)
@@ -81,7 +147,6 @@ public static class Utils
             return jsonElement.GetRawText();
         }
 
-        // For numbers and other types, use JSON serialization
         return JsonSerializer.Serialize(value);
     }
 
@@ -116,6 +181,36 @@ public static class Utils
             return;
         }
 
+        if (value is double d)
+        {
+            AppendNumber(sb, d);
+            return;
+        }
+
+        if (value is float f)
+        {
+            AppendNumber(sb, f);
+            return;
+        }
+
+        if (value is decimal dec)
+        {
+            AppendNumber(sb, (double)dec);
+            return;
+        }
+
+        if (value is long l)
+        {
+            sb.Append(l.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return;
+        }
+
+        if (value is int i)
+        {
+            sb.Append(i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return;
+        }
+
         if (value is System.Text.Json.JsonElement jsonElement)
         {
             sb.Append(jsonElement.GetRawText());
@@ -125,6 +220,52 @@ public static class Utils
         sb.Append(JsonSerializer.Serialize(value));
     }
 
+    private static void AppendNumber(StringBuilder sb, double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            sb.Append(JsonSerializer.Serialize(value));
+            return;
+        }
+
+        if (value == 0.0)
+        {
+            sb.Append('0');
+            return;
+        }
+
+        var text = value.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+        if (text.Contains('E') || text.Contains('e'))
+        {
+            text = value.ToString("0.############################", System.Globalization.CultureInfo.InvariantCulture);
+            text = TrimInsignificantZeros(text);
+        }
+
+        sb.Append(text);
+    }
+
+    private static string TrimInsignificantZeros(string text)
+    {
+        int dot = text.IndexOf('.');
+        if (dot < 0)
+        {
+            return text;
+        }
+
+        int end = text.Length - 1;
+        while (end > dot && text[end] == '0')
+        {
+            end--;
+        }
+
+        if (end == dot)
+        {
+            end--;
+        }
+
+        return text.Substring(0, end + 1);
+    }
+
     /// <summary>
     /// Check if a string needs quotes in TOON format.
     /// </summary>
@@ -132,30 +273,35 @@ public static class Utils
     {
         if (string.IsNullOrEmpty(value))
         {
-            return false;
+            return true;
         }
 
-        // Check if it's a safe identifier
+        if (value.Trim().Length < value.Length)
+        {
+            return true;
+        }
+
+        if (LooksLikeAmbiguousStringLiteral(value))
+        {
+            return true;
+        }
+
         if (IsSafeIdentifier(value))
         {
             return false;
         }
 
-        // Check if it's a number
-        if (NumberRegex.IsMatch(value))
+        if (!string.IsNullOrEmpty(activeTableDelimiter) && activeTableDelimiter != "," &&
+            value.Contains(activeTableDelimiter, StringComparison.Ordinal))
         {
-            return false;
+            return true;
         }
 
-        // Check for boolean/null literals
-        if (value == "true" || value == "false" || value == "null")
-        {
-            return false;
-        }
-
-        // Needs quotes if contains special characters, whitespace, or starts with number
         return value.Any(c =>
-            char.IsWhiteSpace(c) ||
+            c == '"' ||
+            c == '\n' ||
+            c == '\r' ||
+            c == '\t' ||
             c == ':' ||
             c == '-' ||
             c == '[' ||
@@ -163,6 +309,30 @@ public static class Utils
             c == '{' ||
             c == '}' ||
             (c == ',' && (activeTableDelimiter == null || activeTableDelimiter == ",")));
+    }
+
+    /// <summary>
+    /// JSON strings that look like booleans, null, or numbers must be quoted in TOON output.
+    /// </summary>
+    public static bool LooksLikeAmbiguousStringLiteral(string value)
+    {
+        if (value is "true" or "false" or "null" || NumberRegex.IsMatch(value))
+        {
+            return true;
+        }
+
+        // Leading zeros are strings in JSON, not TOON numbers (e.g. "05")
+        if (value.Length > 1 && value[0] == '0' && char.IsDigit(value[1]))
+        {
+            return true;
+        }
+
+        if (value.Length > 2 && value[0] == '-' && value[1] == '0' && char.IsDigit(value[2]))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -193,8 +363,18 @@ public static class Utils
     /// </summary>
     public static object? GuessNumber(ReadOnlySpan<char> token)
     {
-        // Quick check: must start with digit or minus sign
         if (token.IsEmpty)
+        {
+            return null;
+        }
+
+        // Leading zeros are strings, not numbers (§4)
+        if (token.Length > 1 && token[0] == '0' && char.IsDigit(token[1]))
+        {
+            return null;
+        }
+
+        if (token.Length > 2 && token[0] == '-' && token[1] == '0' && char.IsDigit(token[2]))
         {
             return null;
         }
@@ -225,17 +405,17 @@ public static class Utils
             }
             if (double.TryParse(token, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double d))
             {
-                return d;
+                return NormalizeNumericValue(d);
             }
         }
         else
         {
             // For integers, try parse directly (faster)
-            if (long.TryParse(token, out long l))
+            if (long.TryParse(token, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long l))
             {
-                return l;
+                return NormalizeIntegerWidth(l);
             }
-            // If direct parse fails, validate with regex
+
             if (!NumberRegex.IsMatch(token.ToString()))
             {
                 return null;
@@ -244,6 +424,26 @@ public static class Utils
 
         return null;
     }
+
+    /// <summary>
+    /// Prefer integers when a float token is mathematically integral (JSON decode parity).
+    /// </summary>
+    public static object NormalizeNumericValue(double value)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return value;
+        }
+
+        if (value == Math.Truncate(value) && value >= long.MinValue && value <= long.MaxValue)
+        {
+            return NormalizeIntegerWidth((long)value);
+        }
+
+        return value;
+    }
+
+    public static object NormalizeIntegerWidth(long value) => value;
 
     /// <summary>
     /// Detect tabular schema for a sequence of uniform objects.
@@ -277,25 +477,31 @@ public static class Utils
         {
             var row = rowList[i];
 
-            if (i > 0 && row.Count != keyCount)
+            if (row.Count != keyCount)
             {
                 return null;
             }
 
-            int idx = 0;
-            foreach (var key in row.Keys)
+            if (i > 0)
             {
-                if (i > 0 && (idx >= keyCount || key != firstKeys[idx]))
+                for (int j = 0; j < keyCount; j++)
+                {
+                    if (!row.ContainsKey(firstKeys[j]))
+                    {
+                        return null;
+                    }
+                }
+            }
+
+            for (int j = 0; j < keyCount; j++)
+            {
+                var cell = row[firstKeys[j]];
+                if (!IsTabularPrimitiveValue(cell))
                 {
                     return null;
                 }
 
-                if (!IsTabularPrimitiveValue(row[key]))
-                {
-                    return null;
-                }
-
-                if (row[key] is string s)
+                if (cell is string s)
                 {
                     if (!needsNonComma && s.Contains(','))
                     {
@@ -307,8 +513,6 @@ public static class Utils
                         needsNonPipe = true;
                     }
                 }
-
-                idx++;
             }
         }
 
@@ -455,17 +659,18 @@ public static class Utils
             stringFlagsComputed = true;
         }
 
-        if (!needsNonComma && IsTableDelimiterViable(",", keys, rows, skipStringScan: stringFlagsComputed))
+        // Prefer comma; cell values that contain the delimiter are quoted (§11).
+        if (IsTableDelimiterViable(",", keys, rows, skipStringScan: true))
         {
             return ",";
         }
 
-        if (!needsNonPipe && IsTableDelimiterViable("|", keys, rows, skipStringScan: stringFlagsComputed && needsNonComma))
+        if (IsTableDelimiterViable("|", keys, rows, skipStringScan: true))
         {
             return "|";
         }
 
-        if (IsTableDelimiterViable("\t", keys, rows))
+        if (IsTableDelimiterViable("\t", keys, rows, skipStringScan: true))
         {
             return "\t";
         }
@@ -521,19 +726,7 @@ public static class Utils
 
     public static void AppendQuotedString(StringBuilder sb, string value)
     {
-        sb.Append('"');
-        for (int i = 0; i < value.Length; i++)
-        {
-            char c = value[i];
-            if (c is '"' or '\\')
-            {
-                sb.Append('\\');
-            }
-
-            sb.Append(c);
-        }
-
-        sb.Append('"');
+        sb.Append(JsonSerializer.Serialize(value, QuotedJsonOptions));
     }
 
     public static int EstimateScalarEncodedLength(object? value, string? activeTableDelimiter = null)

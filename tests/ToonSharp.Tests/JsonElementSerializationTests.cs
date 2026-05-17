@@ -48,7 +48,7 @@ public class JsonElementSerializationTests
         Assert.Contains("name: Alice", toon);
         Assert.Contains("address:", toon);
         Assert.Contains("city: NYC", toon);
-        Assert.Contains("zip: 10001", toon);
+        Assert.Contains("zip: \"10001\"", toon);
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class JsonElementSerializationTests
         
         // Verify all fields are properly converted
         Assert.Contains("DocumentId: DOC-2024-001", toon);
-        Assert.Contains("Content: \"This is a document about digital transformation in enterprises...\"", toon);
+        Assert.Contains("Content: This is a document about digital transformation in enterprises...", toon);
         Assert.Contains("AnalysisType: sentiment_and_topics", toon);
         Assert.Contains("MaxTokensResponse: 500", toon);
         Assert.Contains("DesiredMetrics[4]: sentiment,topics,entities,summary", toon);
