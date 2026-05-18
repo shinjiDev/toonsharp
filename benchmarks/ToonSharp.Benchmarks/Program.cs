@@ -10,9 +10,6 @@ if (args.Contains("--all"))
 
 var runArgs = args.Length > 0
     ? args
-    : new[] { "--filter", "*ToonSharpBenchmarks*|*SpecV3*" };
+    : new[] { "--filter", "*ToonSharpBenchmarks*", "*SpecV3ListItem*", "--join" };
 
-BenchmarkRunner.Run(
-    new[] { typeof(ToonSharpBenchmarks), typeof(SpecV3ListItemBenchmarks) },
-    config: null,
-    runArgs);
+BenchmarkSwitcher.FromAssembly(typeof(ToonSharpBenchmarks).Assembly).Run(runArgs);
