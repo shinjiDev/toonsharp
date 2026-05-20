@@ -31,7 +31,7 @@
 
 ## Performance snapshot (early 2.0.0 branch vs ToonLib 1.4.2)
 
-Benchmarks on **.NET 9**, BenchmarkDotNet, `main` = 1.4.2 baseline. Current numbers are in [README.md](README.md).
+Benchmarks on **.NET 10**, BenchmarkDotNet, `main` = 1.4.2 baseline. Current numbers are in [README.md](README.md).
 
 | Operation | Workload | Early 2.0.0 branch | vs 1.4.2 |
 |-----------|----------|-------------------|-----------|

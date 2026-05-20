@@ -3,7 +3,7 @@
 [![NuGet Version](https://img.shields.io/nuget/v/ToonLib.svg?label=NuGet&color=blue)](https://www.nuget.org/packages/ToonLib)
 [![Version](https://img.shields.io/badge/ToonLib-2.0.0-blue.svg)](https://www.nuget.org/packages/ToonLib)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ToonLib.svg?label=Downloads&color=green)](https://www.nuget.org/packages/ToonLib)
-[![.NET Version](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/download)
+[![.NET Version](https://img.shields.io/badge/.NET-10.0-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-528%20passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
 
@@ -130,7 +130,7 @@ dotnet build
 dotnet test
 ```
 
-**Requirements:** .NET 9.0 or later
+**Requirements:** .NET 10.0 or later
 
 ## 🚀 Quick Start
 
@@ -390,7 +390,7 @@ dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 
 ToonSharp uses **Span-based parsing**, a **`ToonWriter` serialization buffer**, and **delimiter-aware fast paths** (quoted JSON strings and unquoted comma-split inline arrays). Parallel mode remains available for large tabular encodes (75+ rows) and long inline list arrays (200+ items).
 
-**Methodology:** **.NET 9**, **BenchmarkDotNet** `SimpleJob` (`InvocationCount=100`, `IterationCount=10` for core/YAML/TOML/JSON benches; §10 list-item uses `InvocationCount=50`, `IterationCount=8`). **ToonLib 2.0.0**, Release build, May 2026. Re-run:
+**Methodology:** **.NET 10**, **BenchmarkDotNet** `SimpleJob` (`InvocationCount=100`, `IterationCount=10` for core/YAML/TOML/JSON benches; §10 list-item uses `InvocationCount=50`, `IterationCount=8`). **ToonLib 2.0.0**, Release build, May 2026. Re-run:
 
 ```bash
 dotnet build benchmarks/ToonSharp.Benchmarks/ToonSharp.Benchmarks.csproj -c Release

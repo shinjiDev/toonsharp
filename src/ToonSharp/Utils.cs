@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -37,6 +38,9 @@ public static class Utils
 
     private static readonly Regex SafeIdentifierRegex = new(@"^[A-Za-z_][A-Za-z0-9_\-]*$", RegexOptions.Compiled);
     private static readonly Regex NumberRegex = new(@"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$", RegexOptions.Compiled);
+    private static readonly SearchValues<char> UnsafeScalarChars = SearchValues.Create("\"\n\r\t:-[]{}");
+    private static readonly SearchValues<char> CommaDelimiter = SearchValues.Create(",");
+    private static readonly SearchValues<char> StructuralDelimiters = SearchValues.Create(",|\t");
 
     /// <summary>
     /// Check if a string is a safe unquoted identifier in TOON.
@@ -297,18 +301,18 @@ public static class Utils
             return true;
         }
 
-        return value.Any(c =>
-            c == '"' ||
-            c == '\n' ||
-            c == '\r' ||
-            c == '\t' ||
-            c == ':' ||
-            c == '-' ||
-            c == '[' ||
-            c == ']' ||
-            c == '{' ||
-            c == '}' ||
-            (c == ',' && (activeTableDelimiter == null || activeTableDelimiter == ",")));
+        var span = value.AsSpan();
+        if (span.ContainsAny(UnsafeScalarChars))
+        {
+            return true;
+        }
+
+        if ((activeTableDelimiter == null || activeTableDelimiter == ",") && span.ContainsAny(CommaDelimiter))
+        {
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -503,12 +507,13 @@ public static class Utils
 
                 if (cell is string s)
                 {
-                    if (!needsNonComma && s.Contains(','))
+                    var span = s.AsSpan();
+                    if (!needsNonComma && span.ContainsAny(StructuralDelimiters))
                     {
                         needsNonComma = true;
                     }
 
-                    if (!needsNonPipe && s.Contains('|'))
+                    if (!needsNonPipe && span.ContainsAny(StructuralDelimiters))
                     {
                         needsNonPipe = true;
                     }
@@ -644,12 +649,13 @@ public static class Utils
                         continue;
                     }
 
-                    if (!needsNonComma && s.Contains(','))
+                    var span = s.AsSpan();
+                    if (!needsNonComma && span.ContainsAny(StructuralDelimiters))
                     {
                         needsNonComma = true;
                     }
 
-                    if (!needsNonPipe && s.Contains('|'))
+                    if (!needsNonPipe && span.ContainsAny(StructuralDelimiters))
                     {
                         needsNonPipe = true;
                     }

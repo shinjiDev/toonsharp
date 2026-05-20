@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -30,6 +31,7 @@ public class Line
 /// </summary>
 public class ToonLexer
 {
+    private static readonly SearchValues<char> LineCommentStarters = SearchValues.Create("#");
     private readonly string source;
 
     public ToonLexer(string source)
@@ -197,7 +199,7 @@ public class ToonLexer
             if (!inString)
             {
                 // Check for '#' comment
-                if (c == '#')
+                if (LineCommentStarters.Contains(c))
                 {
                     commentStart = i;
                     break;
@@ -290,7 +292,7 @@ public class ToonLexer
                 continue;
             }
 
-            if (!inString && (ch == '#' || (i < line.Length - 1 && line.AsSpan(i, 2).SequenceEqual("//"))))
+            if (!inString && (LineCommentStarters.Contains(ch) || (i < line.Length - 1 && line.AsSpan(i, 2).SequenceEqual("//"))))
             {
                 break;
             }
