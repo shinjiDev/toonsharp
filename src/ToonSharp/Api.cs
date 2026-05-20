@@ -46,7 +46,12 @@ public class TabularSuggestion
         /// </summary>
     public static string ToToon(object? obj, int indent = 2, string mode = "auto")
     {
-        var serializer = new ToonSerializer(indent, mode);
+        return ToToon(obj, new ToonEncodeOptions { Indent = indent, Mode = mode });
+    }
+
+    public static string ToToon(object? obj, ToonEncodeOptions options)
+    {
+        var serializer = new ToonSerializer(options);
         return serializer.Dumps(obj);
     }
 
@@ -55,7 +60,16 @@ public class TabularSuggestion
     /// </summary>
     public static object? FromToon(string source, string mode = "strict")
     {
-        var parser = new ToonParser(mode);
+        return FromToon(source, new ToonDecodeOptions
+        {
+            Strict = string.Equals(mode, "strict", StringComparison.OrdinalIgnoreCase),
+            ExpandPaths = "safe",
+        });
+    }
+
+    public static object? FromToon(string source, ToonDecodeOptions options)
+    {
+        var parser = new ToonParser(options);
         return parser.Parse(source);
     }
 

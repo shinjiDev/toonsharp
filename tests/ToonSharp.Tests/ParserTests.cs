@@ -106,7 +106,7 @@ items:
     [Fact]
     public void ParseThrowsOnInvalidSyntax()
     {
-        var text = "invalid syntax without colon";
+        var text = "a:\n  user";
         var parser = new ToonParser();
         
         Assert.Throws<ToonSyntaxError>(() => parser.Parse(text));

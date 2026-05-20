@@ -16,6 +16,7 @@ public class ExamplesComplianceTests
 
     public static IEnumerable<object[]> JsonToonPairs => EnumerateJsonToonPairs();
     public static IEnumerable<object[]> ValidExamples => EnumerateToonFiles("valid");
+    public static IEnumerable<object[]> ValidExamplesForRoundTrip => ValidExamples;
     public static IEnumerable<object[]> InvalidExamples => EnumerateToonFiles("invalid");
 
     [Theory]
@@ -50,7 +51,7 @@ public class ExamplesComplianceTests
     }
 
     [Theory]
-    [MemberData(nameof(ValidExamples))]
+    [MemberData(nameof(ValidExamplesForRoundTrip))]
     public void Valid_examples_round_trip_without_loss(string relativePath)
     {
         var toonPath = Path.Combine(ExamplesRoot, relativePath);
@@ -68,6 +69,34 @@ public class ExamplesComplianceTests
         Assert.True(
             JsonNode.DeepEquals(normalizedOriginal, roundTrip),
             $"Valid example '{relativePath}' lost information after the round trip.");
+    }
+
+    [Theory]
+    [MemberData(nameof(ValidExamples))]
+    public void Valid_examples_decode_in_strict_mode(string relativePath)
+    {
+        var toonPath = Path.Combine(ExamplesRoot, relativePath);
+        var toonText = File.ReadAllText(toonPath);
+
+        var (isValid, errors) = Api.ValidateToon(toonText);
+        Assert.True(isValid, $"Valid example '{relativePath}' did not pass validation: {string.Join(", ", errors)}");
+
+        var first = NormalizeJson(Api.FromToon(toonText, mode: "strict"));
+        var second = NormalizeJson(Api.FromToon(toonText, mode: "strict"));
+        Assert.True(JsonNode.DeepEquals(first, second), $"Valid example '{relativePath}' is not deterministically decodable.");
+    }
+
+    [Fact]
+    public void Delimiter_scoping_decodes_active_delimiter_for_tabular_rows()
+    {
+        var toonPath = Path.Combine(ExamplesRoot, "valid", "delimiter-scoping.toon");
+        var root = Api.FromToon(File.ReadAllText(toonPath), mode: "strict") as Dictionary<string, object?>;
+        Assert.NotNull(root);
+
+        var rows = Assert.IsAssignableFrom<List<Dictionary<string, object?>>>(root["rows"]);
+        Assert.Single(rows);
+        Assert.Equal("1", rows[0]["id"]?.ToString());
+        Assert.Equal("a,b", rows[0]["value"]?.ToString());
     }
 
     [Theory]
@@ -147,8 +176,13 @@ public class ExamplesComplianceTests
     private static JsonNode NormalizeJson(string jsonText) =>
         JsonNode.Parse(jsonText) ?? throw new InvalidOperationException("Invalid JSON content.");
 
-    private static JsonNode NormalizeJson(object? graph)
+        private static JsonNode NormalizeJson(object? graph)
     {
+        if (graph is null)
+        {
+            return JsonNode.Parse("null") ?? throw new InvalidOperationException("Invalid graph serialization result.");
+        }
+
         var json = JsonSerializer.Serialize(graph, new JsonSerializerOptions { WriteIndented = false });
         return JsonNode.Parse(json) ?? throw new InvalidOperationException("Invalid graph serialization result.");
     }

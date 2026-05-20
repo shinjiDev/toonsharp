@@ -22,4 +22,10 @@
     <ProjectReference Include="..\..\src\ToonSharp\ToonSharp.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\fixtures\spec\**\*.json" LinkBase="fixtures\spec">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

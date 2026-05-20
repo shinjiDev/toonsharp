@@ -1,14 +1,42 @@
 # 🔄 ToonSharp (C#)
 
 [![NuGet Version](https://img.shields.io/nuget/v/ToonLib.svg?label=NuGet&color=blue)](https://www.nuget.org/packages/ToonLib)
+[![Version](https://img.shields.io/badge/ToonLib-2.0.0-blue.svg)](https://www.nuget.org/packages/ToonLib)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/ToonLib.svg?label=Downloads&color=green)](https://www.nuget.org/packages/ToonLib)
 [![.NET Version](https://img.shields.io/badge/.NET-9.0-blue.svg)](https://dotnet.microsoft.com/download)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
+[![Tests](https://img.shields.io/badge/tests-528%20passing-brightgreen.svg)](https://github.com/shinjiDev/toonsharp/actions)
 
-A production-grade C# library and CLI that converts data between JSON, YAML, TOML, and TOON (Token-Oriented Object Notation) while fully conforming to **TOON SPEC v2.0**. Perfect for .NET developers and data engineers who need efficient, token-optimized data serialization.
+**ToonLib 2.0.0** is a major release of the production-grade C# library and CLI for JSON, YAML, TOML, and TOON (Token-Oriented Object Notation). It implements **[TOON SPEC v3.0](https://github.com/toon-format/spec/blob/main/SPEC.md)** with breaking encode/decode changes versus **1.4.x**.
 
-**✅ Full TOON SPEC v2.0 Compliance** - This library implements all examples from the [official TOON specification repository](https://github.com/toon-format/spec/tree/main/examples), ensuring complete compatibility with the standard.
+> **Versioning:** **2.0.0** = NuGet package / library. **SPEC v3.0** = format rules this release targets. The published **SPEC v2** example corpus is documented in **[README.v2.md](README.v2.md)** (not the same as library 1.4.x).
+
+**✅ TOON SPEC v3.0** — Canonical §10 list-item encoding, array length headers (`key[N]:`), **358** official encode/decode fixtures, span-optimized I/O, and **528** automated tests.
+
+## ✅ TOON SPEC v3.0 compliance
+
+Conformance is enforced by automated tests, not documentation alone:
+
+| Suite | Coverage |
+|-------|----------|
+| **`OfficialFixturesTests`** | **358** cases from `tests/fixtures/spec/` (official encode + decode JSON corpora) |
+| **`ExamplesComplianceTests`** | **66** cases from `examples/spec_v2/` (published spec examples) |
+| **`SpecV3ListItemTests`** | §10 list-item encode/decode and round-trip |
+| **Unit tests** | Parser, serializer, API, POCO, YAML/TOML integration |
+| **Total** | **528** tests (`dotnet test -c Release`) |
+
+### Encode / decode behavior aligned with the spec
+
+- **§10 list items:** tabular first field on the hyphen line (`- users[2]{id,name}:`), rows at depth +2, siblings at depth +1.
+- **Array headers:** `key[N]:` (and delimiter suffix `key[N|]:`, `key[N\t]:` when configured).
+- **§7.2 strings:** safe unquoted strings (including spaces); quote when ambiguous (`true`, `42`, leading zeros), when containing structural characters (`:`, `,`, newlines), or inside active delimiter fields.
+- **§11 delimiters:** prefer comma; **quote tabular cells** that contain the active delimiter instead of silently switching delimiters; explicit `delimiter` option for `|`, tab, or comma.
+- **§7.3 keys:** quote unsafe keys (spaces, leading `-`, `build-system`, etc.); dot-separated foldable keys per key-folding rules.
+- **Key folding (`safe`):** collision-aware flattening; `expandPaths` off by default for fixtures, `safe` for example-driven `FromToon`.
+- **Numbers:** JSON-style integer width (`long`); leading-zero tokens remain strings.
+- **Parser (strict):** missing `:` in object context; multiple root values; blank-line rules in arrays/tables; `- [N]:` nested array headers before inline bracket lines; JSON-quoted root scalars (e.g. Windows paths).
+- **Performance (decode):** fast path for **unquoted comma-separated inline arrays** (e.g. `items[1000]: Item 1,Item 2,…`) without per-character state machine cost.
+- **Performance (encode):** `ToonWriter` buffer, `AppendScalar` into `StringBuilder`, inline primitive arrays without length caps.
 
 ## ✨ Features
 
@@ -27,7 +55,7 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML c
 
 * **Recursive descent parser** with indentation tracking
 * **Comment support** - inline (`#`, `//`) and block (`/* */`) comments
-* **ABNF-backed grammar** - fully compliant with TOON SPEC v2.0
+* **ABNF-backed grammar** - fully compliant with TOON SPEC v3.0
 * **Error reporting** with line and column numbers
 
 ### 🚀 3. Automatic Tabular Detection
@@ -39,16 +67,15 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML c
 
 ### ⚡ 4. Performance Optimizations
 
-* **Direct JSON string support** via `JsonElement` serialization (v1.4.0) 🚀
-* **POCO object serialization** via reflection (v1.4.0, improved in v1.4.1) 🚀
-* **60-85% faster** YAML serialization (v1.2.0)
-* **40-46% faster** for large table operations (v1.1.0)
-* **16-20% faster** for large array deserialization
-* **Parallel processing** for large tables (50+ rows) and arrays (200+ items)
-* **Span<T> optimizations** for zero-allocation string operations
-* **Static instance reuse** for YAML serializers/deserializers
-* **Memory-efficient** parsing and serialization
-* **Automatic threshold tuning** based on data size
+* **Span-based lexer and scalar parsing** — `ReadOnlySpan<char>` hot paths, pre-sized line lists
+* **Unquoted inline-array fast path** — comma-split decode for `key[N]: a,b,c` without quotes (~**66% faster** large-array deserialize vs ToonLib 1.4.2; see benchmarks)
+* **`ToonWriter` + `AppendScalar`** — serialize directly into a shared buffer (large inline arrays **~43% faster** serialize vs ToonLib 1.4.2)
+* **TOON SPEC v3.0 §10** list-item micro-benchmark ~**6 / 17 / 23 μs** (serialize / deserialize / round-trip)
+* **Large table** deserialize ~**15% faster** vs ToonLib 1.4.2; round-trip ~**36% faster** (see benchmarks; high variance on parallel encode)
+* **Parallel processing** for large tables (75+ rows) and inline list arrays (200+ items) when beneficial
+* **Direct JSON string support** via `JsonElement` serialization (v1.4.0)
+* **POCO object serialization** via reflection (v1.4.0+)
+* **60-85% faster** YAML serialization (v1.2.0) via static serializer reuse
 
 ### 🛠️ 5. CLI & Utilities
 
@@ -62,20 +89,32 @@ The `ToonSharp` library provides comprehensive JSON ↔ TOON ↔ YAML ↔ TOML c
 ### Via NuGet Package Manager (Recommended)
 
 ```bash
-dotnet add package ToonLib
+dotnet add package ToonLib --version 2.0.0
 ```
 
 Or using Package Manager Console in Visual Studio:
 ```powershell
-Install-Package ToonLib
+Install-Package ToonLib -Version 2.0.0
 ```
 
 Or using NuGet CLI:
 ```bash
-nuget install ToonLib
+nuget install ToonLib -Version 2.0.0
 ```
 
-**Package:** [ToonLib on NuGet.org](https://www.nuget.org/packages/ToonLib)
+**Package:** [ToonLib 2.0.0 on NuGet.org](https://www.nuget.org/packages/ToonLib)
+
+### Upgrading from ToonLib 1.4.x
+
+**2.0.0 is a breaking release.** Expect different TOON output for the same JSON input:
+
+- List items with a tabular first field use **§10** form (`- key[N]{fields}:` on the hyphen line).
+- Array fields emit **`key[N]:`** length headers.
+- Tabular rows keep **comma** delimiters and **quote** cells that contain commas (no automatic `|` switch).
+- More strings stay **unquoted** when safe (e.g. spaces); ambiguous tokens and structural characters are quoted per spec.
+- Keys with hyphens (e.g. `build-system`) are quoted.
+
+Pin `1.4.x` if you need byte-stable output from the pre-v3 line; adopt `2.0.0` for spec conformance and performance.
 
 ### From Source
 
@@ -253,11 +292,9 @@ var person = new Person
 };
 var toon = Api.ToToon(person);
 // Output:
-// Name: Alice
+// Name: John Doe
 // Age: 30
-// Tags:
-//   - developer
-//   - blogger
+// Tags[2]: developer,blogger
 
 // Also works with anonymous types and classes without namespace
 var anon = new { Title = "Report", Value = 123 };
@@ -336,171 +373,195 @@ dotnet run --project src/ToonSharp.CLI -- toon-to-toml --in config.toon --out ou
 ## 🧪 Testing
 
 ```bash
-# Run all tests
-dotnet test
+# Full suite (528 tests)
+dotnet test -c Release
 
-# Run with coverage
+# Official spec fixtures only (358)
+dotnet test -c Release --filter OfficialFixturesTests
+
+# Published spec_v2 examples (66)
+dotnet test -c Release --filter ExamplesComplianceTests
+
+# With coverage
 dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
 ```
 
 ## ⚡ Performance
 
-ToonSharp is optimized for high performance using **parallel processing** and **Span<T>** optimizations. The library automatically uses parallel processing for large datasets (tables with 50+ rows, arrays with 200+ items) and leverages `Span<T>` for zero-allocation string operations, significantly reducing memory allocations and improving throughput.
+ToonSharp uses **Span-based parsing**, a **`ToonWriter` serialization buffer**, and **delimiter-aware fast paths** (quoted JSON strings and unquoted comma-split inline arrays). Parallel mode remains available for large tabular encodes (75+ rows) and long inline list arrays (200+ items).
 
-**🚀 Version 1.1.0 Performance Improvements:**
-- **40-46% faster** for large table operations (deserialization and round-trip)
-- **16-20% faster** for large array deserialization
-- Optimized `IterLines` with Span-based line processing
-- Optimized `ParseValue` with simplified comparisons and caching
+**Methodology:** **.NET 9**, **BenchmarkDotNet** `SimpleJob` (`InvocationCount=100`, `IterationCount=10` for core/YAML/TOML/JSON benches; §10 list-item uses `InvocationCount=50`, `IterationCount=8`). **ToonLib 2.0.0**, Release build, May 2026. Re-run:
 
-The following benchmarks were executed on **.NET 9.0** with BenchmarkDotNet (v1.1.0):
+```bash
+dotnet build benchmarks/ToonSharp.Benchmarks/ToonSharp.Benchmarks.csproj -c Release
+dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release --no-build   # core + §10 (default filter)
+dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release --no-build -- --all --filter '*Yaml*'  # full suite (PowerShell: single-quote filter)
+.\scripts\compare-vs-main-baseline.ps1   # vs pinned ToonLib 1.4.2 baselines
+```
 
-### Performance Results
+### Core TOON benchmarks (ToonLib 2.0.0)
 
-| Operation | Size | Mean Time | Std Deviation | Allocated Memory |
-|-----------|------|-----------|--------------|------------------|
-| **Serialization** (JSON → TOON) | Small (~100 B) | 9.043 μs | ±0.43 μs | 1,010 B |
-| | Medium (~1 KB) | 29.068 μs | ±2.00 μs | 3,442 B |
-| | Large (~10 KB) | 325.625 μs | ±23.10 μs | 43,042 B |
-| | Large Table (200 rows) | 606.985 μs | ±126.06 μs | 318,352 B |
-| | Large Array (1000 items) | 529.001 μs | ±21.82 μs | 737,500 B |
-| **Deserialization** (TOON → JSON) | Small | 12.043 μs | ±1.11 μs | 1,899 B |
-| | Medium | 44.646 μs | ±3.43 μs | 10,011 B |
-| | Large | 400.055 μs | ±8.17 μs | 70,515 B |
-| | Large Table (200 rows) | 611.939 μs | ±52.06 μs | 476,681 B |
-| | Large Array (1000 items) | 438.117 μs | ±12.35 μs | 350,435 B |
-| **Round-Trip** (JSON → TOON → JSON) | Small | 25.491 μs | ±1.95 μs | 2,895 B |
-| | Medium | 72.087 μs | ±2.29 μs | 13,442 B |
-| | Large | 660.590 μs | ±441.61 μs | 113,546 B |
-| | Large Table (200 rows) | 799.313 μs | ±186.01 μs | 805,424 B |
-| | Large Array (1000 items) | 812.023 μs | ±16.82 μs | 931,439 B |
+| Operation | Size | Mean Time | Allocated | vs ToonLib 1.4.2 |
+|-----------|------|-----------|-----------|------------------|
+| **Serialization** | Small (~100 B) | 1.85 μs | 8.97 KB | ~same |
+| | Medium (~1 KB) | 11.02 μs | 10.38 KB | ~same |
+| | Large (~10 KB) | 84.6 μs | 45.18 KB | **~−32%** |
+| | Large Table (200 rows) | 498.1 μs | 384.28 KB | ~same † |
+| | Large Array (1000 inline items) | 212.3 μs | 277.48 KB | **~−43%** |
+| **Deserialization** | Small | 9.30 μs | 2.02 KB | ~same |
+| | Medium | 29.78 μs | 7.06 KB | ~same |
+| | Large | 197.3 μs | 72.14 KB | ~−14% |
+| | Large Table (200 rows) | 341.5 μs | 362.52 KB | **~−15%** |
+| | Large Array (1000 inline items) | 149.3 μs | 171.22 KB | **~−66%** |
+| **Round-Trip** | Small | 10.67 μs | 10.98 KB | ~same |
+| | Medium | 41.59 μs | 17.44 KB | ~−19% |
+| | Large | 324.9 μs | 117.32 KB | ~+25% †† |
+| | Large Table (200 rows) | 582.9 μs | 749.46 KB | **~−36%** † |
+| | Large Array (1000 inline items) | 317.2 μs | 448.69 KB | **~−62%** |
+
+† `Serialize_LargeTable` / `RoundTrip_LargeTable` show high variance in BenchmarkDotNet (parallel row encoding); compare script uses the same pinned methodology as other large workloads.
+
+†† `RoundTrip_Large` regressed vs 1.4.2 on this workload (nested non-tabular ~10 KB object); large-array and large-table paths are the primary v2.0.0 wins.
+
+**TOON SPEC v3.0 §10 list-item (tabular on hyphen line):**
+
+| Operation | Mean Time | Allocated |
+|-----------|-----------|-----------|
+| Serialize | 5.93 μs | 9.45 KB |
+| Deserialize | 16.94 μs | 4.19 KB |
+| Round-trip | 22.66 μs | 13.63 KB |
+
+### vs ToonLib 1.4.2 — headline (parallel workloads)
+
+| Method | 1.4.2 (μs) | 2.0.0 (μs) | Delta |
+|--------|------------|------------|-------|
+| `Deserialize_LargeArray` | 435 | **147** | **~−66%** |
+| `Serialize_LargeArray` | 373 | **211** | **~−43%** |
+| `RoundTrip_LargeArray` | 830 | **319** | **~−62%** |
+| `Deserialize_LargeTable` | 403 | **342** | **~−15%** |
+| `Serialize_LargeTable` | 512 | **498** | ~same |
+| `RoundTrip_LargeTable` | 913 | **583** | **~−36%** |
 
 **Notes:**
-- Benchmarks run in Release mode with full optimizations
-- Times include GC overhead and memory allocation
-- Results may vary based on hardware and system load
-- Large Table and Large Array benchmarks use parallel processing (50+ rows, 200+ items)
-- Performance improvements in v1.1.0: 40-46% faster for large table operations compared to v1.0.0
+- **Large array deserialize** improved via unquoted comma-split fast path (no `"` in payload).
+- **Large array serialize** emits one inline `items[1000]: …` line — fewer tokens, single buffer growth.
+- Historical mid-2.0.0 branch numbers (pre fast-path): [README.v2.md](README.v2.md).
 
-### YAML Conversion Performance
+### YAML conversion (ToonLib 2.0.0)
 
-**🚀 Version 1.2.0 YAML Performance Improvements:**
+Measured with the same BenchmarkDotNet job as core TOON benches (`--all --filter *YamlBenchmarks*`).
 
-ToonSharp v1.2.0 introduces significant YAML performance optimizations through static serializer/deserializer instance reuse:
+| Operation | Size | Mean Time | Allocated |
+|-----------|------|-----------|-----------|
+| **YAML → TOON** (`YamlToToon`) | Small (~100 B) | 42.16 μs | 22.95 KB |
+| | Medium (~1 KB) | 311.40 μs | 60.45 KB |
+| | Large (~10 KB) | 313.34 μs | 342.02 KB |
+| **TOON → YAML** (`ToonToYaml`) | Small | 45.08 μs | 19.52 KB |
+| | Medium | 252.96 μs | 41.93 KB |
+| | Large | 508.79 μs | 227.13 KB |
+| **YAML serialize** (`ToYaml`) | Small | 34.13 μs | 17.50 KB |
+| | Medium | 130.05 μs | 34.98 KB |
+| | Large | 291.33 μs | 155.84 KB |
+| **YAML deserialize** (`FromYaml`) | Small | 35.62 μs | 13.97 KB |
+| | Medium | 272.35 μs | 49.58 KB |
+| | Large | 289.34 μs | 300.77 KB |
+| **YAML round-trip** | Small | 90.61 μs | 42.24 KB |
+| | Medium | 637.83 μs | 103.93 KB |
+| | Large | 554.45 μs | 568.85 KB |
 
-| Operation | Size | Mean Time | Improvement vs v1.1.0 | Allocated Memory |
-|-----------|------|-----------|----------------------|------------------|
-| **YAML → TOON** | Small (~100 B) | 44.83 μs | **26% faster** | 14.76 KB |
-| | Medium (~1 KB) | 367.26 μs | **9% faster** | 51.78 KB |
-| | Large (~10 KB) | 364.67 μs | **15% faster** | 335.23 KB |
-| **TOON → YAML** | Small | 44.89 μs | **79% faster** 🚀 | 18.51 KB |
-| | Medium | 202.42 μs | **61% faster** 🚀 | 43.8 KB |
-| | Large | 274.42 μs | **85% faster** 🚀 | 223.01 KB |
-| **YAML Serialization** | Small | 34.35 μs | **74% faster** 🚀 | 16.66 KB |
-| | Medium | 145.16 μs | **61% faster** 🚀 | 34.15 KB |
-| | Large | 202.06 μs | **80% faster** 🚀 | 155.03 KB |
-| **YAML Deserialization** | Small | 39.77 μs | **36% faster** 🚀 | 13.85 KB |
-| | Medium | 320.79 μs | **26% faster** | 48.88 KB |
-| | Large | 307.28 μs | **4% faster** | 297.91 KB |
-| **YAML Round-Trip** | Small | 91.75 μs | **68% faster** 🚀 | 33.26 KB |
-| | Medium | 724.83 μs | **23% faster** | 95.57 KB |
-| | Large | 695.73 μs | **18% faster** | 558.3 KB |
+Uses static YamlDotNet serializer instances (since v1.2.0).
 
-**YAML Performance Notes:**
-- v1.2.0 achieves **60-85% faster** YAML serialization through static instance reuse
-- YAML conversion leverages the YamlDotNet library for robust YAML support
-- Deserialization improvements are more modest (4-36%) due to parser overhead
-- Memory allocation significantly reduced across all operations
+### TOML conversion (ToonLib 2.0.0)
 
-### TOML Conversion Performance
+Measured with `--all --filter *TomlBenchmarks*` (Tomlyn).
 
-**🎯 Version 1.3.0 TOML Performance:**
+| Operation | Size | Mean Time | Allocated |
+|-----------|------|-----------|-----------|
+| **TOML → TOON** (`TomlToToon`) | Small (~100 B) | 7.99 μs | 18.90 KB |
+| | Medium (~1 KB) | 30.49 μs | 48.77 KB |
+| | Large (~10 KB) | 376.92 μs | 461.32 KB |
+| **TOON → TOML** (`ToonToToml`) | Small | 3.23 μs | 5.55 KB |
+| | Medium | 10.89 μs | 18.74 KB |
+| | Large | 121.59 μs | 193.70 KB |
+| **TOML serialize** (`ToToml`) | Small | 1.65 μs | 3.56 KB |
+| | Medium | 5.25 μs | 10.48 KB |
+| | Large | 58.01 μs | 109.33 KB |
+| **TOML deserialize** (`FromToml`) | Small | 6.30 μs | 10.05 KB |
+| | Medium | 26.62 μs | 37.08 KB |
+| | Large | 334.32 μs | 419.33 KB |
+| **TOML round-trip** | Small | 11.09 μs | 17.17 KB |
+| | Medium | 39.75 μs | 58.03 KB |
+| | Large | 482.13 μs | 638.01 KB |
 
-ToonSharp v1.3.0 introduces TOML support with excellent performance characteristics using the Tomlyn library:
+TOON → TOML remains much faster than TOON → YAML for typical config sizes.
 
-| Operation | Size | Mean Time | Allocated Memory |
-|-----------|------|-----------|------------------|
-| **TOML → TOON** | Small (~100 B) | 9.09 μs | 10.77 KB |
-| | Medium (~1 KB) | 35.84 μs | 42.12 KB |
-| | Large (~10 KB) | 435.12 μs | 493.24 KB |
-| **TOON → TOML** | Small | 3.26 μs | 5.36 KB |
-| | Medium | 12.50 μs | 18.35 KB |
-| | Large | 172.30 μs | 216.85 KB |
-| **TOML Serialization** | Small | 2.20 μs | 3.56 KB |
-| | Medium | 5.99 μs | 10.48 KB |
-| | Large | 68.40 μs | 109.33 KB |
-| **TOML Deserialization** | Small | 6.56 μs | 10.05 KB |
-| | Medium | 28.46 μs | 37.08 KB |
-| | Large | 347.66 μs | 419.37 KB |
-| **TOML Round-Trip** | Small | 11.96 μs | 17.17 KB |
-| | Medium | 42.82 μs | 58.04 KB |
-| | Large | 502.88 μs | 638.07 KB |
+### JSON and POCO serialization (ToonLib 2.0.0)
 
-**TOML Performance Notes:**
-- **Excellent serialization speed**: TOON → TOML is 2-4x faster than YAML serialization
-- **Efficient memory usage**: Lower memory allocation compared to YAML operations
-- **Ideal for configuration files**: Perfect for Rust Cargo.toml, Python pyproject.toml
-- Leverages the high-performance Tomlyn library for TOML parsing
-- Optimized for typical configuration file sizes (small to medium)
+`Dictionary<string, object?>` is the baseline (ratio 1.00). `--all --filter *JsonElementBenchmarks*` / `*PocoBenchmarks*`.
 
-### JSON & Object Serialization Performance
+#### JsonElement and JSON string → TOON
 
-**🚀 Version 1.4.0 JsonElement & POCO Support:**
+| Operation | Size | Mean Time | Allocated | vs Dictionary |
+|-----------|------|-----------|-----------|---------------|
+| **JsonElement → TOON** | Small (~100 B) | 6.29 μs | 9.67 KB | 2.93× |
+| | Medium (~1 KB) | 17.01 μs | 13.69 KB | 7.69× |
+| | Large (~10 KB) | 209.75 μs | 263.36 KB | 98× |
+| **JSON string → TOON** | Small | 9.60 μs | 9.99 KB | 4.35× |
+| | Medium | 44.38 μs | 14.70 KB | 20.77× |
+| | Large | 271.03 μs | 298.72 KB | 125× |
+| **Dictionary (baseline)** | Small | 2.19 μs | 8.97 KB | 1.00× |
+| | Medium | 10.36 μs | 11.40 KB | 4.77× |
+| | Large | 151.66 μs | 157.12 KB | 70× |
 
-ToonSharp v1.4.0 introduces direct serialization support for `JsonElement` (from `System.Text.Json`) and POCO objects via reflection:
+#### POCO and anonymous types → TOON
 
-#### JsonElement Serialization (JSON String → TOON)
+| Operation | Size | Mean Time | Allocated | vs Dictionary |
+|-----------|------|-----------|-----------|---------------|
+| **POCO → TOON** | Small (4 props) | 8.97 μs | 9.70 KB | 4.29× |
+| | Medium (~10 props) | 23.45 μs | 13.24 KB | 11.29× |
+| | Large (100 objects) | 491.03 μs | 240.26 KB | 250× |
+| **Anonymous → TOON** | Small | 6.64 μs | 9.74 KB | 3.21× |
+| | Medium | 10.67 μs | 10.59 KB | 5.10× |
+| **Dictionary (baseline)** | Small | 2.15 μs | 8.96 KB | 1.00× |
+| | Medium | 10.59 μs | 11.40 KB | 5.06× |
+| | Large | 154.81 μs | 157.11 KB | 74× |
 
-| Operation | Size | Mean Time | Allocated Memory | Ratio vs Dictionary |
-|-----------|------|-----------|------------------|---------------------|
-| **JsonElement → TOON** | Small (~100 B) | 4.24 μs | 1.72 KB | 1.27x |
-| | Medium (~1 KB) | 14.78 μs | 7.73 KB | 4.30x |
-| | Large (~10 KB) | 423.17 μs | 293.76 KB | 123.18x |
-| **JSON String → TOON** | Small | 11.36 μs | 2.05 KB | 3.32x |
-| | Medium | 33.83 μs | 8.75 KB | 9.84x |
-| | Large | 630.05 μs | 321.18 KB | 183.79x |
-| **Dictionary (Baseline)** | Small | 3.63 μs | 1.01 KB | 1.00x |
-| | Medium | 9.66 μs | 5.38 KB | 2.79x |
-| | Large | 351.34 μs | 185.23 KB | 99.92x |
-
-#### POCO Object Serialization (C# Class → TOON)
-
-| Operation | Size | Mean Time | Allocated Memory | Ratio vs Dictionary |
-|-----------|------|-----------|------------------|---------------------|
-| **POCO → TOON** | Small (4 props) | 12.42 μs | 1.70 KB | 3.49x |
-| | Medium (~10 props) | 24.20 μs | 7.09 KB | 6.45x |
-| | Large (100 objects) | 535.97 μs | 248.92 KB | 142.22x |
-| **Anonymous Type → TOON** | Small | 11.35 μs | 1.80 KB | 2.93x |
-| | Medium | 13.57 μs | 3.62 KB | 3.69x |
-| **Dictionary (Baseline)** | Small | 3.90 μs | 1.01 KB | 1.00x |
-| | Medium | 10.04 μs | 5.38 KB | 2.70x |
-| | Large | 345.43 μs | 184.51 KB | 93.61x |
-
-**JsonElement & POCO Performance Notes:**
-- **JsonElement near-native speed**: Only 1.27x overhead vs pre-built dictionaries for small objects
-- **POCO serialization via reflection**: Serialize any C# class directly to TOON
-- **Anonymous types support**: Works with `new { ... }` syntax
-- **2-4x overhead for typical use cases**: Excellent performance for most scenarios
+Reflection-based POCO paths add overhead; prefer dictionaries or `JsonElement` for hot paths.
 
 ### Running Benchmarks
 
 ```bash
-# Run all benchmarks
+# Core TOON + v3 §10 benchmarks (recommended, ~30s)
 dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release
 
-# Run specific benchmarks
-dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release -- --filter "*Small*"
+# Full suite (YAML, TOML, POCO, thresholds, etc.)
+dotnet run --project benchmarks/ToonSharp.Benchmarks -c Release -- --all
+
+# Or use the helper script
+.\scripts\run-core-benchmarks.ps1
 ```
 
-Complete results are automatically exported to `BenchmarkDotNet.Artifacts/results/` in Markdown, HTML, and CSV formats.
+Reports are written to `BenchmarkDotNet.Artifacts/results/` (Markdown, HTML, CSV). To compare against a saved baseline:
+
+```powershell
+# Compare Large Array / Large Table vs v1.4.2 baselines
+.\scripts\compare-vs-main-baseline.ps1
+
+# Optional v3 iteration history
+.\scripts\compare-v3-benchmarks.ps1
+```
 
 ## 📚 Documentation
 
-Comprehensive documentation is available in the `docs/` directory:
-
-- **`docs/spec_summary.md`** – Concise TOON SPEC v2.0 overview with ABNF notes
-- **`docs/examples.md`** – JSON⇄TOON conversion examples
-- **`docs/assumptions.md`** – Documented gaps/assumptions + strict vs. permissive behavior
+| Document | Description |
+|----------|-------------|
+| **[README.md](README.md)** (this file) | **ToonLib 2.0.0** + **TOON SPEC v3.0** — default |
+| **[README.v2.md](README.v2.md)** | **TOON SPEC v2** example corpus notes (not library 1.4.x) |
+| **`docs/spec_summary.md`** | Concise spec overview with ABNF notes |
+| **`docs/examples.md`** | JSON⇄TOON conversion examples |
+| **`docs/assumptions.md`** | Strict vs permissive behavior and documented edge cases |
+| **`tests/fixtures/spec/`** | Official encode/decode conformance JSON |
+| **`examples/spec_v2/`** | Published spec example corpus |
 
 ## 🌟 Use Cases
 
@@ -513,23 +574,21 @@ Comprehensive documentation is available in the `docs/` directory:
 * **DevOps & Infrastructure**: Transform configuration files between different formats
 * **Cross-Ecosystem Development**: Convert Rust Cargo.toml ↔ Python pyproject.toml ↔ .NET configs
 
-## 📖 Examples
+## 📖 Examples & conformance
 
-The `examples/spec_v2/` directory contains all material from the official [`toon-format/spec`](https://github.com/toon-format/spec/tree/main/examples) repository:
+**Official fixtures** (`tests/fixtures/spec/`, 358 tests via `OfficialFixturesTests`):
 
-- `conversions/` – JSON ↔ TOON pairs published by the specification.
-- `valid/` – all canonical examples (key folding, custom delimiters, primitive arrays, etc.).
-- `invalid/` – edge cases that must fail in strict mode.
-- `basic_object`, `tabular_array`, `mixed_structures` – ToonSharp-specific examples designed for quick documentation.
+- `encode/` — expected TOON output for JSON inputs (delimiters, key folding, §10 arrays, primitives, …).
+- `decode/` — expected JSON for TOON inputs (validation errors, whitespace, path expansion, …).
 
-The `ExamplesComplianceTests` test suite iterates through **every** official TOON file and verifies that:
+**Published examples** (`examples/spec_v2/`, 66 tests via `ExamplesComplianceTests`):
 
-1. Valid examples can be parsed, validated, and round-tripped without loss.
-2. JSON ↔ TOON pairs remain equivalent after serializing/deserializing with ToonSharp.
-3. Invalid examples throw `ToonSyntaxError` in strict mode.
+- `conversions/` — JSON ↔ TOON pairs from the [spec repository](https://github.com/toon-format/spec/tree/main/examples).
+- `valid/` / `invalid/` — canonical and error cases for strict mode.
 
 ```bash
-dotnet test --filter ExamplesComplianceTests
+dotnet test -c Release --filter OfficialFixturesTests
+dotnet test -c Release --filter ExamplesComplianceTests
 ```
 
 ## 🤝 Contributing
@@ -547,9 +606,27 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 - Add tests for new features
 - Update documentation as needed
 - Ensure all tests pass: `dotnet test`
-- Keep additions aligned with TOON SPEC v2.0
+- Keep additions aligned with [TOON SPEC v3.0](https://github.com/toon-format/spec/blob/main/SPEC.md)
 
 ## 📋 Release Notes
+
+### ToonLib 2.0.0 (2026-05) — **current** · implements TOON SPEC v3.0
+
+Major release after **1.4.x**. Breaking changes to encoded TOON; decode aligned with the official spec test corpora.
+
+**Spec conformance:**
+- **358** official encode/decode fixtures (`tests/fixtures/spec/`) + **66** `examples/spec_v2/` cases — **528** total tests.
+- §10 list-item encoding/decoding; `key[N]:` headers; §11 comma + quoted tabular cells; §7.2/§7.3 quoting rules.
+- Parser: strict blank lines, `- [N]:` vs bracket-only lines, JSON root scalars, `expandPaths` defaults.
+
+**Performance (vs ToonLib 1.4.2 on reference benchmarks):**
+- `ToonWriter` / `AppendScalar` serialization buffer.
+- Unquoted **comma-split inline array** decode fast path.
+- Large array: **~−66%** deserialize, **~−43%** serialize, **~−62%** round-trip (Release, May 2026).
+
+**Documentation:**
+- Default [README.md](README.md) for **library 2.0.0** + **SPEC v3.0**.
+- [README.v2.md](README.v2.md) for the **TOON SPEC v2** published example set.
 
 ### v1.4.2 (2024-12-05)
 - **Bugfix**: Fixed root-level POCO list serialization to use tabular format
@@ -594,7 +671,7 @@ If you find this project helpful, consider supporting my work:
 
 ## 🙏 Acknowledgments
 
-* Built following [TOON SPEC v2.0](https://github.com/toon-format/spec)
+* **ToonLib 2.0.0** built for [TOON SPEC v3.0](https://github.com/toon-format/spec/blob/main/SPEC.md) (SPEC v2 examples: [README.v2.md](README.v2.md))
 * Inspired by the need for efficient, token-optimized data serialization
 * C# implementation inspired by the original TOON reference tooling
 

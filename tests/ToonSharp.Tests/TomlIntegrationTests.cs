@@ -147,7 +147,7 @@ description = ""A sample Python package""
         
         var toon = Api.TomlToToon(toml, indent: 2, mode: "readable");
         
-        Assert.Contains("build-system:", toon);
+        Assert.Contains("\"build-system\":", toon);
         Assert.Contains("project:", toon);
         Assert.Contains("name: my-package", toon);
         Assert.Contains("version: 1.0.0", toon);
