@@ -862,6 +862,7 @@ public class ToonSerializer
         }
         else
         {
+            ArgumentNullException.ThrowIfNull(keyRepr);
             WriteKeyedArrayHeaderLine(writer, level, keyRepr, list.Count);
             WriteArrayOfArraysHyphenItems(list, level + indent, writer);
         }

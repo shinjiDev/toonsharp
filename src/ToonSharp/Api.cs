@@ -69,6 +69,8 @@ public class TabularSuggestion
 
     public static object? FromToon(string source, ToonDecodeOptions options)
     {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(options);
         var parser = new ToonParser(options);
         return parser.Parse(source);
     }
@@ -78,6 +80,7 @@ public class TabularSuggestion
     /// </summary>
     public static (bool isValid, List<ValidationError> errors) ValidateToon(string source, bool strict = true)
     {
+        ArgumentNullException.ThrowIfNull(source);
         var errors = new List<ValidationError>();
         try
         {
@@ -102,6 +105,7 @@ public class TabularSuggestion
     /// </summary>
     public static TabularSuggestion SuggestTabular(List<object?> obj)
     {
+        ArgumentNullException.ThrowIfNull(obj);
         if (obj.Count == 0)
         {
             return new TabularSuggestion(false, 0, new List<string>());
@@ -128,6 +132,8 @@ public class TabularSuggestion
     /// </summary>
     public static int StreamToToon(TextReader input, TextWriter output, int chunkSize = 65536, int indent = 2, string mode = "auto")
     {
+        ArgumentNullException.ThrowIfNull(input);
+        ArgumentNullException.ThrowIfNull(output);
         var jsonText = input.ReadToEnd();
         var obj = JsonSerializer.Deserialize<object>(jsonText);
         var toon = ToToon(obj, indent, mode);
@@ -140,6 +146,7 @@ public class TabularSuggestion
     /// </summary>
     public static string YamlToToon(string yamlSource, int indent = 2, string mode = "auto")
     {
+        ArgumentNullException.ThrowIfNull(yamlSource);
         var obj = FromYaml(yamlSource);
         return ToToon(obj, indent, mode);
     }
@@ -149,6 +156,7 @@ public class TabularSuggestion
     /// </summary>
     public static string ToonToYaml(string toonSource, string mode = "strict")
     {
+        ArgumentNullException.ThrowIfNull(toonSource);
         var obj = FromToon(toonSource, mode);
         return _yamlSerializer.Serialize(obj);
     }
@@ -166,6 +174,7 @@ public class TabularSuggestion
     /// </summary>
     public static object? FromYaml(string yamlSource)
     {
+        ArgumentNullException.ThrowIfNull(yamlSource);
         var obj = _yamlDeserializer.Deserialize<object>(yamlSource);
         return NormalizeYamlObject(obj);
     }
@@ -224,6 +233,7 @@ public class TabularSuggestion
     /// </summary>
     public static string TomlToToon(string tomlSource, int indent = 2, string mode = "auto")
     {
+        ArgumentNullException.ThrowIfNull(tomlSource);
         var obj = FromToml(tomlSource);
         return ToToon(obj, indent, mode);
     }
@@ -233,6 +243,7 @@ public class TabularSuggestion
     /// </summary>
     public static string ToonToToml(string toonSource)
     {
+        ArgumentNullException.ThrowIfNull(toonSource);
         var obj = FromToon(toonSource);
         return ToToml(obj);
     }
@@ -253,6 +264,7 @@ public class TabularSuggestion
     /// </summary>
     public static object? FromToml(string tomlSource)
     {
+        ArgumentNullException.ThrowIfNull(tomlSource);
         var model = Toml.ToModel(tomlSource);
         return NormalizeTomlObject(model);
     }
@@ -270,14 +282,18 @@ public class TabularSuggestion
         {
             foreach (var kvp in dict)
             {
-                table[kvp.Key] = ConvertToTomlValue(kvp.Value);
+                var converted = ConvertToTomlValue(kvp.Value);
+                if (converted is not null)
+                    table[kvp.Key] = converted;
             }
         }
         else if (obj is IDictionary<string, object?> idict)
         {
             foreach (var kvp in idict)
             {
-                table[kvp.Key] = ConvertToTomlValue(kvp.Value);
+                var converted = ConvertToTomlValue(kvp.Value);
+                if (converted is not null)
+                    table[kvp.Key] = converted;
             }
         }
 

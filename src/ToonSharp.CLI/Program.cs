@@ -1,12 +1,23 @@
 ﻿using System;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using ToonSharp;
 
 namespace ToonSharp.CLI;
 
 class Program
 {
+    static readonly JsonSerializerOptions JsonReadOptions = new()
+    {
+        AllowTrailingCommas = true,
+    };
+
+    static readonly JsonSerializerOptions JsonWriteOptions = new()
+    {
+        WriteIndented = true,
+    };
+
     static int Main(string[] args)
     {
         if (args.Length == 0)
@@ -76,7 +87,7 @@ class Program
         }
 
         var jsonText = File.ReadAllText(inputFile);
-        var obj = System.Text.Json.JsonSerializer.Deserialize<object>(jsonText);
+        var obj = JsonSerializer.Deserialize<object>(jsonText, JsonReadOptions);
         var toon = Api.ToToon(obj, indent, mode);
         File.WriteAllText(outputFile, toon, Encoding.UTF8);
 
@@ -113,7 +124,7 @@ class Program
 
         var toonText = File.ReadAllText(inputFile);
         var obj = Api.FromToon(toonText, mode);
-        var json = System.Text.Json.JsonSerializer.Serialize(obj, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(obj, JsonWriteOptions);
         File.WriteAllText(outputFile, json, Encoding.UTF8);
 
         return 0;
